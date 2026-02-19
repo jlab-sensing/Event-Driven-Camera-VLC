@@ -1,0 +1,2 @@
+raw_file,total_events,bin_ms,onset_s,noise_mean,noise_std,signal_mean,signal_std,peaks_detected,freq_hz,period_mean_ms,period_std_ms,dt_mean_us,dt_median_us,dt_p95_us,snr_ratio,snr_z
+led_test2.raw,310790007,1.0,2.775824,9111.849,151.83165743348783,596123.9269311065,318116.4949911428,118,248.9361702127661,4.017094017094015,8.429681895208642,0.001346273203125975,0.0,0.0,65.42293742259189,3866.2034509387872

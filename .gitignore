@@ -1,5 +1,4 @@
-# Ignore large data
-data/
+
 
 # Virtual environments
 metavision*_env/
