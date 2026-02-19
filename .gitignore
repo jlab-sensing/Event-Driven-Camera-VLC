@@ -1,0 +1,13 @@
+# Ignore large data
+data/
+
+# Virtual environments
+metavision*_env/
+
+# VSCode
+.vscode/
+
+# Raw recordings
+*.raw
+*.tmp_index
+*.bias
