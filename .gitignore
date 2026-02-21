@@ -1,12 +1,15 @@
 
 
-# Virtual environments
+# Virtual environments (in case it sneaks into the repo)
 metavision*_env/
 
-# VSCode
-.vscode/
 
-# Raw recordings
+
+# Raw recordings (in case they sneak into the repo)
 *.raw
 *.tmp_index
 *.bias
+
+# other
+__pycache__/
+*.pyc

@@ -6,17 +6,8 @@ import matplotlib.pyplot as plt
 from metavision_core.event_io import EventsIterator
 from typing import Optional
 
-
-# HOW TO RUN THIS CODE IN YOUR TERMINAL
-# 1. make sure your virtual enviroment is active and your in the lab folder etc. 
-# 2. python analyze_metrics.py --raw led_test2.raw --save_csv
-#   If the peak detection is too sensitive (too many lines), increase the threshold:
-#       python analyze_metrics.py --raw led_test2.raw --peak_k 10 --save_csv
-#   If it misses peaks, lower it:
-#       python analyze_metrics.py --raw led_test2.raw --peak_k 4 --save_csv     
-
-
-
+from cli_utils import add_common_args
+from io_utils import save_metrics_csv, save_plot
 
 
 # ----------------------------
@@ -27,7 +18,6 @@ def load_timestamps_us(raw_path: str) -> np.ndarray:
     events = EventsIterator(input_path=raw_path)
     ts = []
     for evs in events:
-        # evs['t'] is microseconds
         ts.append(evs["t"])
     if not ts:
         return np.array([], dtype=np.int64)
@@ -48,7 +38,12 @@ def event_rate_signal(time_s: np.ndarray, bin_width_s: float) -> tuple[np.ndarra
 # ----------------------------
 # Onset / segmentation
 # ----------------------------
-def detect_onset_time(t: np.ndarray, y: np.ndarray, k_sigma: float = 8.0, min_sustain_bins: int = 20) -> Optional[float]:
+def detect_onset_time(
+    t: np.ndarray,
+    y: np.ndarray,
+    k_sigma: float = 8.0,
+    min_sustain_bins: int = 20
+) -> Optional[float]:
     """
     Detect when activity 'turns on' by finding the first time the signal stays above a threshold.
     Threshold = median + k_sigma * robust_sigma (MAD-based).
@@ -62,7 +57,6 @@ def detect_onset_time(t: np.ndarray, y: np.ndarray, k_sigma: float = 8.0, min_su
     thr = med + k_sigma * robust_sigma
 
     above = y > thr
-    # Find first index where above stays True for min_sustain_bins
     run = 0
     for i, a in enumerate(above):
         run = run + 1 if a else 0
@@ -72,13 +66,12 @@ def detect_onset_time(t: np.ndarray, y: np.ndarray, k_sigma: float = 8.0, min_su
     return None
 
 
-def split_noise_signal(t: np.ndarray, y: np.ndarray, onset_s: float, noise_window_s: float = 1.0) -> dict:
+def split_noise_signal(t: np.ndarray, y: np.ndarray, onset_s: Optional[float], noise_window_s: float = 1.0) -> dict:
     """
     Pick a noise window just before onset, and a signal window after onset.
     Returns indices and basic stats windows.
     """
     if onset_s is None:
-        # fall back: treat first 20% as noise, last 80% as signal
         n = len(t)
         cut = max(1, int(0.2 * n))
         noise_idx = slice(0, cut)
@@ -87,13 +80,14 @@ def split_noise_signal(t: np.ndarray, y: np.ndarray, onset_s: float, noise_windo
         noise_start = onset_s - noise_window_s
         noise_end = onset_s
         noise_mask = (t >= noise_start) & (t < noise_end)
-        signal_mask = (t >= onset_s)  # all after onset
-        # If noise window is empty (short recording), fallback to early section
+        signal_mask = (t >= onset_s)
+
         if not np.any(noise_mask):
             n = len(t)
             cut = max(1, int(0.2 * n))
             noise_mask = np.zeros(n, dtype=bool)
             noise_mask[:cut] = True
+
         noise_idx = noise_mask
         signal_idx = signal_mask
 
@@ -130,7 +124,6 @@ def find_peaks_simple(t: np.ndarray, y: np.ndarray, min_height: float, min_dista
     if not candidates:
         return np.array([])
 
-    # enforce min spacing
     peaks = [candidates[0]]
     for idx in candidates[1:]:
         if (t[idx] - t[peaks[-1]]) >= min_distance_s:
@@ -140,10 +133,7 @@ def find_peaks_simple(t: np.ndarray, y: np.ndarray, min_height: float, min_dista
 
 
 def estimate_frequency_and_jitter(peak_times_s: np.ndarray) -> dict:
-    """
-    Compute frequency and jitter from peak times.
-    Jitter is reported as std dev of period.
-    """
+    """Compute frequency and jitter from peak times. Jitter is std dev of period."""
     if peak_times_s.size < 3:
         return {"freq_hz": float("nan"), "period_mean_s": float("nan"), "period_std_s": float("nan")}
 
@@ -161,7 +151,6 @@ def estimate_frequency_and_jitter(peak_times_s: np.ndarray) -> dict:
 def inter_event_dt_near_peaks(ts_us: np.ndarray, peak_times_s: np.ndarray, window_s: float = 0.002) -> dict:
     """
     For each peak time, look at events within ±window_s and compute inter-event dt stats.
-    This is a proxy for how dense the burst is temporally.
     """
     if ts_us.size == 0 or peak_times_s.size == 0:
         return {"dt_mean_us": float("nan"), "dt_median_us": float("nan"), "dt_p95_us": float("nan")}
@@ -174,7 +163,7 @@ def inter_event_dt_near_peaks(ts_us: np.ndarray, peak_times_s: np.ndarray, windo
         seg = ts_s[mask]
         if seg.size >= 3:
             seg_sorted = np.sort(seg)
-            d = np.diff(seg_sorted) * 1e6  # to microseconds
+            d = np.diff(seg_sorted) * 1e6  # microseconds
             dts.append(d)
 
     if not dts:
@@ -206,6 +195,8 @@ def snr_proxy(noise_mean: float, noise_std: float, signal_mean: float) -> dict:
 # Plot helpers
 # ----------------------------
 def plot_activity(t: np.ndarray, y: np.ndarray, onset_s: Optional[float], peak_times_s: np.ndarray, title: str):
+    """Create plot (no saving here; saving is handled by save_plot)."""
+    plt.figure()
     plt.plot(t, y)
     plt.xlabel("Time (s)")
     plt.ylabel("Event count per bin")
@@ -213,10 +204,8 @@ def plot_activity(t: np.ndarray, y: np.ndarray, onset_s: Optional[float], peak_t
 
     if onset_s is not None:
         plt.axvline(onset_s, linestyle="--")
-    for pt in peak_times_s[:200]:  # avoid drawing a million lines
+    for pt in peak_times_s[:200]:
         plt.axvline(pt, linestyle=":", linewidth=0.8)
-
-    plt.show()
 
 
 # ----------------------------
@@ -224,15 +213,15 @@ def plot_activity(t: np.ndarray, y: np.ndarray, onset_s: Optional[float], peak_t
 # ----------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--raw", required=True, help="Path to .raw file (e.g. led_test2.raw)")
-    ap.add_argument("--bin_ms", type=float, default=1.0, help="Histogram bin width in milliseconds (default 1.0)")
-    ap.add_argument("--peak_k", type=float, default=6.0, help="Peak threshold = noise_mean + peak_k*noise_std (default 6.0)")
+
+    # common args: --raw --save_csv --out --no_plot
+    add_common_args(ap)
+
+    # script-specific args
+    ap.add_argument("--bin_ms", type=float, default=1.0, help="Histogram bin width in ms (default 1.0)")
+    ap.add_argument("--peak_k", type=float, default=6.0, help="Peak threshold = noise_mean + peak_k*noise_std")
     ap.add_argument("--min_peak_dist_ms", type=float, default=0.5, help="Min time between peaks in ms (default 0.5)")
     ap.add_argument("--burst_window_ms", type=float, default=2.0, help="Window around peaks for inter-event dt stats (default 2.0)")
-    ap.add_argument("--save_csv", action="store_true", help="Save metrics summary as CSV next to the raw file")
-    ap.add_argument("--no_plot", action="store_true", help="Do not show plots")
-    ap.add_argument("--out", type=str, required=True,
-                help="Custom CSV filename (saved inside data folder)")
     args = ap.parse_args()
 
     raw_path = args.raw
@@ -264,7 +253,6 @@ def main():
         mask = t_bins >= onset_s
         t_use, y_use = t_bins[mask], counts[mask]
 
-    # Peak height threshold based on noise stats
     min_height = seg["noise_mean"] + args.peak_k * seg["noise_std"]
     peak_times_s = find_peaks_simple(
         t_use, y_use,
@@ -278,7 +266,7 @@ def main():
     print(f"Estimated freq (Hz): {fj['freq_hz']:.3f}")
     print(f"Period mean/std (ms): {fj['period_mean_s']*1e3:.3f} / {fj['period_std_s']*1e3:.3f}")
 
-    # Inter-event dt near peaks (burst density proxy)
+    # Inter-event dt near peaks
     dt_stats = inter_event_dt_near_peaks(ts_us, peak_times_s, window_s=args.burst_window_ms / 1000.0)
     print(f"Inter-event dt near peaks (us) mean/median/p95: "
           f"{dt_stats['dt_mean_us']:.2f} / {dt_stats['dt_median_us']:.2f} / {dt_stats['dt_p95_us']:.2f}")
@@ -288,12 +276,8 @@ def main():
     print(f"SNR proxy ratio (signal/noise): {snr['snr_ratio']:.3f}")
     print(f"SNR proxy z-score: {snr['snr_z']:.3f}")
 
-    # Save CSV summary
+    # Save CSV summary (always to repo data/, name comes from --out)
     if args.save_csv:
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        out_dir = os.path.join(repo_root, "data")
-        os.makedirs(out_dir, exist_ok=True)
-        out_csv = os.path.join(out_dir, args.out)
         header = [
             "raw_file", "total_events", "bin_ms", "onset_s",
             "noise_mean", "noise_std", "signal_mean", "signal_std",
@@ -304,19 +288,21 @@ def main():
         row = [
             os.path.basename(raw_path), int(ts_us.size), args.bin_ms, onset_s if onset_s is not None else "",
             seg["noise_mean"], seg["noise_std"], seg["signal_mean"], seg["signal_std"],
-            int(peak_times_s.size), fj["freq_hz"], fj["period_mean_s"]*1e3, fj["period_std_s"]*1e3,
+            int(peak_times_s.size), fj["freq_hz"], fj["period_mean_s"] * 1e3, fj["period_std_s"] * 1e3,
             dt_stats["dt_mean_us"], dt_stats["dt_median_us"], dt_stats["dt_p95_us"],
             snr["snr_ratio"], snr["snr_z"]
         ]
-        with open(out_csv, "w", encoding="utf-8") as f:
-            f.write(",".join(header) + "\n")
-            f.write(",".join(map(str, row)) + "\n")
-        print("Saved:", out_csv)
+        save_metrics_csv(__file__, args.out, header, row)
 
-    # Plot
+    # Plot + auto-save to plots/ using same base name as --out
     if not args.no_plot:
         title = f"Event activity vs time ({os.path.basename(raw_path)})"
         plot_activity(t_bins, counts, onset_s, peak_times_s, title)
+
+        save_plot(__file__, args.out)
+
+        # If you also want it to pop up on screen:
+        plt.show()
 
 
 if __name__ == "__main__":
