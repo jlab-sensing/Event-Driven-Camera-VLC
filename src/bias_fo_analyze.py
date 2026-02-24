@@ -10,6 +10,9 @@ import matplotlib.pyplot as plt
 from metavision_core.event_io import EventsIterator
 
 
+DEFAULT_INPUT_DIR = r"C:\Users\rabis\OneDrive\Documents\School\LAB aka 195\captures\testing_bias_fo"
+
+
 # ----------------------------
 # Load timestamps
 # ----------------------------
@@ -298,7 +301,11 @@ def analyze_one(
 
 def main():
     ap = argparse.ArgumentParser(description="Step 4: Sweep bias_fo and quantify edge sharpness vs noise.")
-    ap.add_argument("--input_dir", required=True, help="Folder of .raw files for the bias_fo sweep")
+    ap.add_argument(
+        "--input_dir",
+        default=DEFAULT_INPUT_DIR,
+        help=f"Folder of .raw files for the bias_fo sweep (default: {DEFAULT_INPUT_DIR})"
+    )
     ap.add_argument("--led_freq_hz", type=float, required=True, help="LED square-wave frequency (e.g., 1000)")
     ap.add_argument("--edges_per_cycle", type=int, default=2, help="2 for ON+OFF edges of a square wave")
 

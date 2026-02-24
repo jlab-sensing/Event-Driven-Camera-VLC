@@ -10,6 +10,9 @@ import matplotlib.pyplot as plt
 from metavision_core.event_io import EventsIterator
 
 
+DEFAULT_INPUT_DIR = r"C:\Users\rabis\OneDrive\Documents\School\LAB aka 195\captures\testing_bias_refr"
+
+
 # ----------------------------
 # Loading events
 # ----------------------------
@@ -265,7 +268,11 @@ def analyze_one_file(
 # ----------------------------
 def main():
     ap = argparse.ArgumentParser(description="Step 3: Sweep bias_refr and measure clustering + missed edges.")
-    ap.add_argument("--input_dir", required=True, help="Folder containing bias_refr sweep .raw files")
+    ap.add_argument(
+        "--input_dir",
+        default=DEFAULT_INPUT_DIR,
+        help=f"Folder containing bias_refr sweep .raw files (default: {DEFAULT_INPUT_DIR})"
+    )
     ap.add_argument(
         "--refr_regex",
         default=r"(?:refr|biasrefr)[_-]([0-9]+(?:\.[0-9]+)?)",
