@@ -9,6 +9,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from metavision_core.event_io import EventsIterator
 
+# Reuse repo output conventions
+from io_utils import repo_root_from_this_file
+
 
 DEFAULT_INPUT_DIR = r"C:\Users\rabis\OneDrive\Documents\School\LAB aka 195\captures\testing_bias_refr"
 
@@ -284,7 +287,8 @@ def main():
     ap.add_argument("--bin_ms", type=float, default=1.0, help="Bin width for activity histogram (ms)")
     ap.add_argument("--peak_k", type=float, default=6.0, help="Peak threshold median+k*robust_sigma")
     ap.add_argument("--min_peak_dist_ms", type=float, default=0.3, help="Minimum spacing between detected peaks (ms)")
-    ap.add_argument("--out_csv", required=True, help="Output summary CSV filename (written into ./data/ if present)")
+    ap.add_argument("--out_csv", required=True, help="Output CSV filename (saved into repo data/)")
+    ap.add_argument("--plot_prefix", default=None, help="Optional prefix for plot filenames (saved into repo plots/)")
 
     ap.add_argument("--no_plot", action="store_true", help="Disable plots")
     args = ap.parse_args()
@@ -318,19 +322,15 @@ def main():
 
     rows.sort(key=lambda r: r.bias_refr)
 
-    # Write CSV (prefer repo data/ if it exists)
-    out_path = args.out_csv
-    # If you have a repo with data/ next to src/, this will drop there; otherwise current dir.
-    if not os.path.isabs(out_path):
-        # try to place in ../data if it exists
-        here = os.path.dirname(os.path.abspath(__file__))
-        candidate = os.path.abspath(os.path.join(here, "..", "data"))
-        if os.path.isdir(candidate) or os.path.isdir(os.path.dirname(candidate)):
-            os.makedirs(candidate, exist_ok=True)
-            out_path = os.path.join(candidate, out_path)
+    # Save summary CSV into repo data/
+    root = repo_root_from_this_file(__file__)
+    out_dir = os.path.join(root, "data")
+    os.makedirs(out_dir, exist_ok=True)
 
-    if not out_path.lower().endswith(".csv"):
-        out_path += ".csv"
+    out_name = args.out_csv
+    if not out_name.lower().endswith(".csv"):
+        out_name += ".csv"
+    out_path = os.path.join(out_dir, out_name)
 
     header = [
         "raw_file", "bias_refr",
@@ -351,10 +351,14 @@ def main():
                 r.peak_interval_mean_ms, r.peak_interval_std_ms
             ])
 
-    print("Saved:", out_path)
+    print("Saved summary CSV:", out_path)
 
     if args.no_plot:
         return
+
+    plot_dir = os.path.join(root, "plots")
+    os.makedirs(plot_dir, exist_ok=True)
+    plot_prefix = args.plot_prefix.strip() if args.plot_prefix else os.path.splitext(out_name)[0]
 
     refr = np.array([r.bias_refr for r in rows], dtype=float)
     missed = np.array([r.missed_edge_frac for r in rows], dtype=float)
@@ -363,40 +367,55 @@ def main():
     evrate = np.array([r.events_per_s for r in rows], dtype=float)
     pstd = np.array([r.peak_interval_std_ms for r in rows], dtype=float)
 
-    plt.figure()
+    fig1 = plt.figure()
     plt.plot(refr, missed, marker="o")
     plt.xlabel("bias_refr")
     plt.ylabel("missed edge fraction")
     plt.title("Missed edges vs bias_refr")
     plt.grid(True)
+    plot1_path = os.path.join(plot_dir, f"{plot_prefix}_missed_edges_vs_bias_refr.png")
+    fig1.savefig(plot1_path, dpi=300)
+    print("Saved plot:", plot1_path)
 
-    plt.figure()
+    fig2 = plt.figure()
     plt.plot(refr, fano, marker="o")
     plt.xlabel("bias_refr")
     plt.ylabel("Fano factor (binned counts)")
     plt.title("Event clustering (burstiness) vs bias_refr")
     plt.grid(True)
+    plot2_path = os.path.join(plot_dir, f"{plot_prefix}_fano_vs_bias_refr.png")
+    fig2.savefig(plot2_path, dpi=300)
+    print("Saved plot:", plot2_path)
 
-    plt.figure()
+    fig3 = plt.figure()
     plt.plot(refr, burst, marker="o")
     plt.xlabel("bias_refr")
     plt.ylabel("Burstiness index")
     plt.title("Burstiness index vs bias_refr")
     plt.grid(True)
+    plot3_path = os.path.join(plot_dir, f"{plot_prefix}_burstiness_vs_bias_refr.png")
+    fig3.savefig(plot3_path, dpi=300)
+    print("Saved plot:", plot3_path)
 
-    plt.figure()
+    fig4 = plt.figure()
     plt.plot(refr, evrate, marker="o")
     plt.xlabel("bias_refr")
     plt.ylabel("events/s")
     plt.title("Event rate vs bias_refr")
     plt.grid(True)
+    plot4_path = os.path.join(plot_dir, f"{plot_prefix}_event_rate_vs_bias_refr.png")
+    fig4.savefig(plot4_path, dpi=300)
+    print("Saved plot:", plot4_path)
 
-    plt.figure()
+    fig5 = plt.figure()
     plt.plot(refr, pstd, marker="o")
     plt.xlabel("bias_refr")
     plt.ylabel("peak interval std (ms)")
     plt.title("Peak timing spread vs bias_refr")
     plt.grid(True)
+    plot5_path = os.path.join(plot_dir, f"{plot_prefix}_peak_timing_spread_vs_bias_refr.png")
+    fig5.savefig(plot5_path, dpi=300)
+    print("Saved plot:", plot5_path)
 
     plt.show()
 
