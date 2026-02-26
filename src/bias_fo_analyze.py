@@ -319,8 +319,8 @@ def main():
 
     ap.add_argument(
         "--fo_regex",
-        default=r"(?:fo|biasfo)[_-]([0-9]+(?:\.[0-9]+)?)",
-        help="Regex (one capture group) to parse bias_fo from filename (e.g., fo_20.raw)"
+        default=r"(?:fo|biasfo)[_-]([+-]?[0-9]+(?:\.[0-9]+)?)",
+        help="Regex (one capture group) to parse bias_fo from filename (e.g., fo_-15.raw)"
     )
     ap.add_argument("--out_csv", required=True, help="Output CSV filename (saved into repo data/)")
     ap.add_argument("--plot_prefix", default=None, help="Optional prefix for plot filenames (saved into repo plots/)")

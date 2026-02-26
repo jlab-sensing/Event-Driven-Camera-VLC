@@ -14,6 +14,7 @@ from io_utils import repo_root_from_this_file
 
 
 DEFAULT_INPUT_DIR = r"C:\Users\rabis\OneDrive\Documents\School\LAB aka 195\captures\testing_bias_refr"
+DEFAULT_MAX_IEI_EVENTS = 5_000_000
 
 
 # ----------------------------
@@ -119,11 +120,27 @@ def burstiness_index(counts: np.ndarray) -> float:
     return float((s - m) / (s + m))
 
 
-def iei_cv(time_s: np.ndarray) -> float:
-    """Coefficient of variation of inter-event intervals."""
-    if time_s.size < 3:
+def iei_cv(t_us: np.ndarray, max_events: int = DEFAULT_MAX_IEI_EVENTS) -> float:
+    """
+    Coefficient of variation of inter-event intervals.
+    Uses stride-based downsampling for very large captures to avoid OOM.
+    """
+    if t_us.size < 3:
         return float("nan")
-    dt = np.diff(np.sort(time_s))
+
+    if max_events <= 0:
+        return float("nan")
+
+    if t_us.size > max_events:
+        step = int(np.ceil(t_us.size / max_events))
+        ts = t_us[::step]
+    else:
+        ts = t_us
+
+    if ts.size < 3:
+        return float("nan")
+
+    dt = np.diff(ts)
     mu = float(np.mean(dt))
     if mu <= 0:
         return float("nan")
@@ -187,6 +204,7 @@ def analyze_one_file(
     min_peak_dist_ms: float,
     led_freq_hz: float,
     edges_per_cycle: int,
+    max_iei_events: int,
 ) -> RefrMetrics:
     t_us, p = load_event_fields(raw_path)
     total_events = int(t_us.size)
@@ -219,7 +237,7 @@ def analyze_one_file(
     t_bins, counts = binned_activity(time_s, bin_ms / 1000.0)
     ff = fano_factor(counts)
     bi = burstiness_index(counts)
-    cv = iei_cv(time_s)
+    cv = iei_cv(t_us, max_events=max_iei_events)
 
     # peak detection -> edges detected
     min_height = robust_peak_threshold(counts, peak_k)
@@ -278,8 +296,8 @@ def main():
     )
     ap.add_argument(
         "--refr_regex",
-        default=r"(?:refr|biasrefr)[_-]([0-9]+(?:\.[0-9]+)?)",
-        help="Regex (with one capture group) to parse bias_refr from filename"
+        default=r"(?:refr|biasrefr)[_-]([+-]?[0-9]+(?:\.[0-9]+)?)",
+        help="Regex (with one capture group) to parse bias_refr from filename (e.g., refr_-20.raw)"
     )
 
     ap.add_argument("--led_freq_hz", type=float, required=True, help="LED square-wave frequency (e.g., 1000)")
@@ -287,6 +305,12 @@ def main():
     ap.add_argument("--bin_ms", type=float, default=1.0, help="Bin width for activity histogram (ms)")
     ap.add_argument("--peak_k", type=float, default=6.0, help="Peak threshold median+k*robust_sigma")
     ap.add_argument("--min_peak_dist_ms", type=float, default=0.3, help="Minimum spacing between detected peaks (ms)")
+    ap.add_argument(
+        "--max_iei_events",
+        type=int,
+        default=DEFAULT_MAX_IEI_EVENTS,
+        help=f"Max events used for IEI CV (default {DEFAULT_MAX_IEI_EVENTS}; larger uses more RAM)"
+    )
     ap.add_argument("--out_csv", required=True, help="Output CSV filename (saved into repo data/)")
     ap.add_argument("--plot_prefix", default=None, help="Optional prefix for plot filenames (saved into repo plots/)")
 
@@ -313,6 +337,7 @@ def main():
             min_peak_dist_ms=args.min_peak_dist_ms,
             led_freq_hz=args.led_freq_hz,
             edges_per_cycle=args.edges_per_cycle,
+            max_iei_events=args.max_iei_events,
         )
         rows.append(m)
         print(f"Done {base}: refr={m.bias_refr} events/s={m.events_per_s:.2f} missed={m.missed_edge_frac:.3f}")
