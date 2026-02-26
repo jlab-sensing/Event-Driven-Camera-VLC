@@ -9,6 +9,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from metavision_core.event_io import EventsIterator
 
+# Reuse repo output conventions
+from io_utils import repo_root_from_this_file
+
 
 DEFAULT_INPUT_DIR = r"C:\Users\rabis\OneDrive\Documents\School\LAB aka 195\captures\testing_bias_fo"
 
@@ -319,7 +322,8 @@ def main():
         default=r"(?:fo|biasfo)[_-]([0-9]+(?:\.[0-9]+)?)",
         help="Regex (one capture group) to parse bias_fo from filename (e.g., fo_20.raw)"
     )
-    ap.add_argument("--out_csv", required=True, help="Output CSV filename (written into ../data if it exists)")
+    ap.add_argument("--out_csv", required=True, help="Output CSV filename (saved into repo data/)")
+    ap.add_argument("--plot_prefix", default=None, help="Optional prefix for plot filenames (saved into repo plots/)")
     ap.add_argument("--no_plot", action="store_true", help="Disable plots")
     args = ap.parse_args()
 
@@ -353,15 +357,15 @@ def main():
 
     rows.sort(key=lambda r: r.bias_fo)
 
-    # Write CSV (prefer ../data/)
-    out_path = args.out_csv
-    if not os.path.isabs(out_path):
-        here = os.path.dirname(os.path.abspath(__file__))
-        data_dir = os.path.abspath(os.path.join(here, "..", "data"))
-        os.makedirs(data_dir, exist_ok=True)
-        out_path = os.path.join(data_dir, out_path)
-    if not out_path.lower().endswith(".csv"):
-        out_path += ".csv"
+    # Save summary CSV into repo data/
+    root = repo_root_from_this_file(__file__)
+    data_dir = os.path.join(root, "data")
+    os.makedirs(data_dir, exist_ok=True)
+
+    out_name = args.out_csv
+    if not out_name.lower().endswith(".csv"):
+        out_name += ".csv"
+    out_path = os.path.join(data_dir, out_name)
 
     header = [
         "raw_file", "bias_fo",
@@ -382,10 +386,14 @@ def main():
                 r.bg_mean, r.bg_std, r.bg_median, r.peak_snr
             ])
 
-    print("Saved:", out_path)
+    print("Saved summary CSV:", out_path)
 
     if args.no_plot:
         return
+
+    plot_dir = os.path.join(root, "plots")
+    os.makedirs(plot_dir, exist_ok=True)
+    plot_prefix = args.plot_prefix.strip() if args.plot_prefix else os.path.splitext(out_name)[0]
 
     fo = np.array([r.bias_fo for r in rows], dtype=float)
     fwhm = np.array([r.mean_fwhm_ms for r in rows], dtype=float)
@@ -395,47 +403,65 @@ def main():
     evps = np.array([r.events_per_s for r in rows], dtype=float)
     slope = np.array([r.mean_peak_slope_per_ms for r in rows], dtype=float)
 
-    plt.figure()
+    fig1 = plt.figure()
     plt.plot(fo, fwhm, marker="o")
     plt.xlabel("bias_fo")
     plt.ylabel("mean peak FWHM (ms)  ↓ sharper")
     plt.title("Edge sharpness vs bias_fo")
     plt.grid(True)
+    plot1_path = os.path.join(plot_dir, f"{plot_prefix}_edge_sharpness_vs_bias_fo.png")
+    fig1.savefig(plot1_path, dpi=300)
+    print("Saved plot:", plot1_path)
 
-    plt.figure()
+    fig2 = plt.figure()
     plt.plot(fo, slope, marker="o")
     plt.xlabel("bias_fo")
     plt.ylabel("mean peak slope (counts/ms)  ↑ sharper")
     plt.title("Edge steepness vs bias_fo")
     plt.grid(True)
+    plot2_path = os.path.join(plot_dir, f"{plot_prefix}_edge_steepness_vs_bias_fo.png")
+    fig2.savefig(plot2_path, dpi=300)
+    print("Saved plot:", plot2_path)
 
-    plt.figure()
+    fig3 = plt.figure()
     plt.plot(fo, bgm, marker="o")
     plt.xlabel("bias_fo")
     plt.ylabel("background mean (counts/bin)  ↓ less noise")
     plt.title("Background noise vs bias_fo")
     plt.grid(True)
+    plot3_path = os.path.join(plot_dir, f"{plot_prefix}_background_noise_vs_bias_fo.png")
+    fig3.savefig(plot3_path, dpi=300)
+    print("Saved plot:", plot3_path)
 
-    plt.figure()
+    fig4 = plt.figure()
     plt.plot(fo, snr, marker="o")
     plt.xlabel("bias_fo")
     plt.ylabel("peak SNR proxy (z-score-ish)  ↑ better")
     plt.title("Peak prominence vs bias_fo")
     plt.grid(True)
+    plot4_path = os.path.join(plot_dir, f"{plot_prefix}_peak_prominence_vs_bias_fo.png")
+    fig4.savefig(plot4_path, dpi=300)
+    print("Saved plot:", plot4_path)
 
-    plt.figure()
+    fig5 = plt.figure()
     plt.plot(fo, missed, marker="o")
     plt.xlabel("bias_fo")
     plt.ylabel("missed edge fraction  ↓ better")
     plt.title("Missed edges vs bias_fo")
     plt.grid(True)
+    plot5_path = os.path.join(plot_dir, f"{plot_prefix}_missed_edges_vs_bias_fo.png")
+    fig5.savefig(plot5_path, dpi=300)
+    print("Saved plot:", plot5_path)
 
-    plt.figure()
+    fig6 = plt.figure()
     plt.plot(fo, evps, marker="o")
     plt.xlabel("bias_fo")
     plt.ylabel("events/s")
     plt.title("Event rate vs bias_fo")
     plt.grid(True)
+    plot6_path = os.path.join(plot_dir, f"{plot_prefix}_event_rate_vs_bias_fo.png")
+    fig6.savefig(plot6_path, dpi=300)
+    print("Saved plot:", plot6_path)
 
     plt.show()
 
