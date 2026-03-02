@@ -191,6 +191,24 @@ def mark_outlier_trials_by_mean(summary_rows: List[Dict[str, float]]) -> Dict[st
     return zmap
 
 
+def wrap_label_on_underscores(label: str, max_line_len: int = 16) -> str:
+    """Wrap long labels at underscores so x-tick text stays readable."""
+    parts = label.split("_")
+    lines: List[str] = []
+    current = ""
+    for part in parts:
+        candidate = part if not current else f"{current}_{part}"
+        if len(candidate) <= max_line_len:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = part
+    if current:
+        lines.append(current)
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Compute LED-toggle to first-event latency from one or more .raw trials."
@@ -380,14 +398,16 @@ def main():
             plt.savefig(hist_path, dpi=300)
             print("Saved plot:", hist_path)
 
-            plt.figure()
-            labels = [k for k, _ in non_empty]
+            plt.figure(figsize=(10, 6))
+            labels = [wrap_label_on_underscores(k) for k, _ in non_empty]
             data = [v for _, v in non_empty]
             plt.boxplot(data, labels=labels, showfliers=True)
             plt.xlabel("trial")
             plt.ylabel("latency (us)")
             plt.title("Latency boxplot by trial")
             plt.grid(True)
+            plt.tight_layout()
+            plt.subplots_adjust(bottom=0.20)
             box_path = os.path.join(plot_dir, f"{args.out_prefix}_latency_boxplot_by_trial.png")
             plt.savefig(box_path, dpi=300)
             print("Saved plot:", box_path)
