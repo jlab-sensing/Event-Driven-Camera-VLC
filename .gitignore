@@ -1,15 +1,15 @@
 
 
-# Virtual environments (in case it sneaks into the repo)
+# Virtual environments (in case it sneaks into the repo, machine specific so everyone should manually download it)
 metavision*_env/
 
 
 
-# Raw recordings (in case they sneak into the repo)
+# Raw recordings (in case they sneak into the repo, too big to clone wasteful of space)
 *.raw
 *.tmp_index
 *.bias
 
-# other
+# pychache and pyc (it is machine specific and also is automatically regenerated so no need to save it)
 __pycache__/
 *.pyc
