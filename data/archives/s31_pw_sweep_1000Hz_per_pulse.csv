@@ -1,3 +1,8 @@
+# NOTE: The 30-pulse analysis did not represent true misses from the camera.
+# Reason: --num_pulses 30 expects toggles from t=2.0s to t=31.0s (1s spacing), but these recordings only contain about the first 10-11 pulses (~11-12s).
+# That mismatch caused trailing scheduled toggles with no corresponding captured events, lowering detected_frac artificially.
+# The 10-pulse re-analysis matched the captured window and produced full detection for the analyzed pulses.
+
 trial,raw_file,toggle_index,toggle_s,first_event_s,latency_us,detected_within_window,iqr_outlier
 R04_s31_pw_8ms,R04_s31_pw_8ms.raw,0,2.0,2.000007,7.000000000090267,1,0
 R04_s31_pw_8ms,R04_s31_pw_8ms.raw,1,3.0,3.0000459999999998,45.99999999976845,1,1

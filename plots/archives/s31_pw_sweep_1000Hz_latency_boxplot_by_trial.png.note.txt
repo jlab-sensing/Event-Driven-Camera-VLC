@@ -1,0 +1,5 @@
+﻿NOTE for this archived plot:
+The earlier 30-pulse schedule/analysis did not match the recording duration.
+--num_pulses 30 expects toggles through ~31s (first at 2s, 1s period), but captures only contained about the first 10-11 pulses (~11-12s).
+So many trailing toggles had no corresponding events, which looked like missed detections.
+With --num_pulses 10, schedule and capture window align and detection is complete for the analyzed pulses.
