@@ -1,0 +1,41 @@
+       Source: https://arxiv.org/abs/2303.07169  
+        
+       Von Arnim et al. (2024) present a system for simultaneously identifying and tracking moving 
+       objects using blinking infrared beacons and an event based camera. The main problem they 
+       address is that traditional frame based cameras are too slow to reliably decode high frequency 
+       blinking signals, especially when the beacons are moving. Their solution combines the 
+       microsecond level responsiveness of an event camera with a spiking neural network that the 
+       system figures out which direction and how fast the beacon is moving, so it can keep following it 
+       as it moves around for tracking, and decodes the beacon's blink pattern to recover a transmitted 
+       ID number. The result is a system capable of both reading data from a beacon and following its 
+       position in real time, which is something no prior method had achieved together. 
+        
+       The communication side of the system works by encoding an identification number into an 11-bit 
+       sequence that the beacon repeatedly transmits by blinking on and off. The event camera picks 
+       up each brightness transition as it happens, and the system reconstructs the bit sequence from 
+       the timing of those transitions. Because event cameras react to changes rather than capturing 
+       full frames, they can keep up with beacon frequencies far beyond what conventional cameras 
+       allow. The authors tested this in a static indoor setup and found that their system maintained 
+       over 94% message accuracy at frequencies up to 2.5 kHz, outperforming prior event based 
+       approaches that topped out at 500 bps. 
+        
+       For the purposes of Section 3.1, figure 6 of this paper is something that I plan to replicate. It 
+       plots Message Accuracy Rate (MAR) against increasing beacon frequency, showing where the 
+       camera's temporal resolution begins to break down. This is directly comparable to 
+       characterizing timestamp precision, minimum detectable pulse width, and decoding reliability, 
+       which are the exact metrics the baseline evaluation targets.  
+                                                  
+        
+       Because von Arnim et al. report their results in terms of Message Accuracy Rate rather than Bit 
+       Error Rate, a numerical comparison requires conversion between the two metrics. Assuming bit 
+       errors occur independently across a message, the probability that an entire message is 
+       decoded correctly is the probability that every individual bit is correct, giving MAR = (1 - 
+       BER)^N, where N is the message length in bits. Rearranging, BER = 1 - MAR^(1/N). For their 11 
+       bit sequence, a reported MAR of 94% at 2.5 kHz corresponds to an equivalent BER of 
+       approximately 0.6%, meaning around 6 out of every 1000 bits were in error. Replicating this 
+       experiment serves as a validation of my own experimental setup, because if the EVK4 produces 
+       BER results close to this 0.6% benchmark under equivalent modulation conditions, it confirms 
+       that my hardware, decoding pipeline, and methodology are functioning correctly. This in turn 
+       strengthens the validity of the subsequent OOK and CSK results collected throughout the rest of 
+       the thesis. 
+        
