@@ -1,0 +1,296 @@
+             SENIOR THESIS PROPOSAL - CHIP BISHOP, UCSC ELECTRICAL ENGINEERING                  1 
+                Visible Light Communication With 
+                             Event Driven Cameras 
+                                     Chip Bishop. Email: robishop@ucsc.edu 
+                                                -Mentors- 
+                                Dr. Colleen Josephson. Email: cjosephson@ucsc.edu 
+                                         UCSC Electrical Engineering 
+              
+              
+             1.1 INTRODUCTION 
+                   Visible light communication (VLC) is emerging as a low cost, low interference alternative to 
+             radio frequency (RF) communication for indoor Internet of Things (IoT) and robotics. But current VLC 
+             receivers, photodiodes and rolling shutter cameras consume significant power, struggle with fast 
+             modulation, and break down under real world lighting variations. Event driven cameras may solve these 
+             challenges, but their performance as VLC receivers remains underexplored. 
+                   Event driven cameras record only changes in brightness instead of continuously capturing full 
+             image frames. By ignoring static visual information, they react to light changes almost instantly and 
+             consume much less energy than conventional rolling shutter cameras [3]. These properties make them 
+             promising receivers for VLC, a wireless system where LEDs transmit data by rapidly modulating their 
+             brightness [1]. This research goes into how effectively event driven cameras can decode VLC signals 
+             from blinking LEDs and whether they offer advantages over traditional cameras in latency (ms), energy 
+             per bit (J/bit), and decoding accuracy measured using bit error rate (BER). By testing on-off keying 
+             (OOK) under both line-of-sight (LOS) and limited non-line-of-sight (NLOS) conditions, and by changing 
+             ambient illumination measured in lux using an external light meter, the study evaluates the potential of 
+             event based sensors as practical, low energy optical receivers [2]. Additionally, this research will explore 
+             the possibilities of color shift keying (CSK) with event driven cameras, with three potential schemes to do 
+             so. The results aim to determine whether event driven cameras can support future VLC systems for 
+             robotics, IoT devices, and neuromorphic communication technologies.  
+              
+             2.1 BACKGROUND 
+                   VLC enables wireless data transmission through rapid modulation of LED brightness, offering a 
+             low cost and interference free alternative to RF systems. Recent work has demonstrated that event based 
+             optical sensors can decode VLC signals by responding to rapid brightness changes rather than full image 
+             frames [2, 3, 4]. This proposal investigates whether event driven cameras, whose pixels independently 
+             report changes in brightness, can serve as efficient low power receivers for VLC. 
+                   Prior studies have shown that VLC can achieve high speed and energy efficient communication 
+             using temporal modulation (OOK) or multi-chromatic encoding schemes such as CSK [4]. The issue is 
+             that most existing VLC receivers rely on photodiodes or traditional rolling shutter cameras. These sensors 
+             need continuous frame capture or high rate sampling, resulting in high power consumption. They also 
+             suffer from motion blur, limited sampling speed, and severe degradation under uncontrolled ambient 
+                 SENIOR THESIS PROPOSAL - CHIP BISHOP, UCSC ELECTRICAL ENGINEERING                                              2 
+                 lighting conditions [2, 6]. Event driven cameras provide an appealing alternative because they output 
+                 asynchronous per pixel events with microsecond resolution, capturing only dynamic brightness changes 
+                 while ignoring static information. This sparse and low latency sensing architecture suggests that event 
+                 cameras may support robust, low energy VLC reception ideal for embedded and mobile systems. 
+                          Several studies demonstrate that event driven optical sensors can decode OOK based VLC by 
+                 detecting abrupt brightness transitions in modulated LEDs [8, 11]. These systems report timestamped 
+                 events corresponding to logical transitions and achieve reliable decoding under controlled illumination. In 
+                 contrast, current literature on event camera VLC rarely evaluates multi chromatic modulation such as 
+                 CSK. Traditional CMOS based CSK systems have been demonstrated using RGB LED mixtures and 
+                 chromaticity mapping, achieving reduced BER compared to OOK under illumination fluctuations [10]. 
+                 The only known work applying color processing to event-based sensors [9] focused on asynchronous 
+                 color segmentation for vision tasks rather than modulated light communication. No prior study has 
+                 examined whether event sensors can recover chromaticity information reliably enough to support CSK 
+                 within a VLC system. Given that the only instance of CSK applied to event based sensors was not 
+                 conducted within a VLC framework, a research gap exists regarding whether event cameras can recover 
+                 chromaticity information with sufficient reliability to enable CSK in visible light communication. In 
+                 addition to the lack of CSK focused studies, existing work on event-based VLC is often limited to 
+                 controlled illumination conditions.  
+                          Existing event based VLC work mostly evaluates decoding under heavily controlled lighting, 
+                 where ambient illumination, shadows, reflections, and NLOS effects are absent or intentionally 
+                 minimized. Real indoor environments often introduce fluctuating illumination, partial occlusion, and 
+                 reflective surfaces that can disrupt the detection of LED intensity changes and increase BER, yet no 
+                 studies investigate how event cameras perform under these realistic conditions. Prior work rarely 
+                 measures energy-per-bit (J/bit) or provides direct comparisons against rolling shutter smartphone cameras, 
+                 leaving open the question of whether event cameras offer a meaningful energy advantage for VLC [8, 10].  
+                          To address these gaps, this proposal systematically evaluates event driven cameras under both 
+                 controlled and realistic indoor lighting, quantifying performance using BER, latency, and energy per bit 
+                 across OOK and CSK modulation schemes. By explicitly measuring decoding reliability under varying 
+                 lux levels, shadows, reflections, and limited NLOS conditions, this study aims to determine whether event 
+                 cameras can function as practical, robust VLC receivers that work for embedded, robotic, and 
+                 neuromorphic communication systems. 
+                           
+                 2.2 TECHNICAL CONCEPT  
+                          VLC transmits data using rapid changes in LED brightness. These changes are typically encoded 
+                 through modulation schemes such as OOK and CSK. In OOK, binary data are transmitted using temporal 
+                 intensity changes: a high-intensity pulse represents a logical one (“1”) and the absence or low intensity 
+                 pulse represents a logical zero (“0”). If the LED emits optical power       , then the transmitted bit 
+                 sequence        can be expressed as: 
+                 SENIOR THESIS PROPOSAL - CHIP BISHOP, UCSC ELECTRICAL ENGINEERING                                             3 
+                                                                                       
+                 Alternatively, CSK transmits data through spatial color variations rather than intensity alone, mapping bits 
+                 to chromaticity coordinates defined by multiple LED wavelengths. This technique supports higher data 
+                 rates and greater resilience to dimming, though it requires color sensitive receivers and involves more 
+                 complex decoding compared to OOK.  
+                         Unlike conventional rolling shutter cameras, event driven cameras do not capture full images or 
+                 measure static intensity levels. Instead, each pixel independently reports a new event whenever the 
+                 brightness change       exceeds a logarithmic threshold   . Mathematically, an event is generated when: 
+                                                                                           
+                 where        is the incident light intensity. This makes event cameras highly reactive to fast LED 
+                 modulation because even subtle transitions in brightness trigger pixel level outputs with microsecond 
+                 latency. The precise timestamps let the camera decode VLC signals by seeing when events happen. 
+                                                                                                             
+                              Figure 1: EVK4 Event Camera schematic by Prophesee (Source: Prophesse [7]) 
+                                                                       
+                         In this work, decoding refers to the reconstruction of the transmitted digital bit sequence from the 
+                 event camera’s asynchronous brightness-change outputs. Rather than forming image frames or measuring 
+                 absolute intensity, decoding is performed by grouping timestamped events over fixed symbol intervals 
+                 and interpreting their temporal structure and relative activity. For OOK, bursts of events correspond to 
+                 logical ones while low activity indicates logical zeros. The recovered bitstream is then compared to the 
+                 transmitted sequence to compute bit error rate. 
+                  SENIOR THESIS PROPOSAL - CHIP BISHOP, UCSC ELECTRICAL ENGINEERING                                                    4 
+                           The quality of VLC decoding can be evaluated using BER, which measures the ratio of 
+                  incorrectly decoded bits to the total transmitted bits. If      bits are incorrectly decoded out of 
+                  transmitted bits, the BER is expressed as:  
+                                                                                    
+                            
+                            
+                  3.0 EXPERIMENTAL OBJECTIVES AND EVALUATION FRAMEWORK 
+                           This section outlines a structured experimental framework to evaluate the usability of event 
+                  driven cameras for embedded and optical communication systems. Because event sensors capture only 
+                  brightness changes with microsecond level latency, they may offer advantages over conventional frame 
+                  based CMOS cameras in decoding accuracy, energy efficiency, and resilience to ambient illumination.  
+                           Section 3.1 investigates baseline event camera timing performance and decoding reliability. 
+                  Section 3.2 quantifies total energy cost per bit to determine whether event-based sensing provides 
+                  measurable reductions in power consumption. Section 3.3 evaluates robustness under real-world 
+                  illumination conditions. Finally, Section 3.4 isolates and extends the evaluations from 3.1 and 3.2 to VLC 
+                  experiments that consist of CSK. Section 3.4 will be done in parallel to 3.1 and 3.2, as shown in figure 2, 
+                  in order to allow flexibility with beginning section 3.3 with OOK experiments separately from 3.4. The 
+                  CSK experiments represent a relatively unexplored area of study, and it is uncertain whether they will 
+                  yield measurable results such as quantifiable bit error rates, symbol decoding accuracy, or energy-per-bit 
+                  performance within the project timeline. Separating the CSK experiments into their own phase ensures 
+                  that potential delays or inconclusive outcomes from this exploratory work will not impede progress on 
+                  Section 3.3. Together, these studies determine whether event-driven sensors can serve as practical, 
+                  low-power receivers for embedded and optical wireless communication.  
+                           In all experiments, a predefined binary sequence will be transmitted using the LED array through 
+                  OOK or CSK modulation. The EVK4 event camera will record asynchronous brightness change events, 
+                  which will be grouped into fixed symbol intervals to reconstruct the transmitted bitstream. The recovered 
+                  sequence will then be compared to the known transmitted sequence to compute BER. 
+                  3.1 BASELINE EVENT CAMERA PERFORMANCE EVALUATION 
+                           The first objective is to characterize the intrinsic timing precision and responsiveness of the event 
+                  camera under controlled optical conditions. This establishes a foundation for later VLC experiments. Key 
+                  metrics include timestamp precision and latency, evaluated through controlled brightness transitions. It 
+                  also includes inter-event arrival spacing and minimum detectable pulse width, determining temporal 
+                  resolution limits. Finally, we will conduct event density and signal-to-noise ratio under varying 
+                  illumination. 
+                           This baseline testing verifies that the event camera can capture microsecond-scale transitions 
+             SENIOR THESIS PROPOSAL - CHIP BISHOP, UCSC ELECTRICAL ENGINEERING                  5 
+             consistently and that timestamp jitter remains below the modulation symbol period. These results will 
+             define how well the camera performs on its own, before testing any specific modulation schemes.  
+                    
+             3.2 QUANTIFYING ENERGY EFFICIENCY FOR EMBEDDED DEVICES 
+                   The second objective evaluates the total energy cost per bit (J/bit) for event-based sensing and 
+             decoding compared to frame-based approaches. Experiments will measure sensing energy (camera power 
+             consumption), compute energy (decoding and processing cost), and total energy per transmitted bit across 
+             varying data rates and illumination levels. By avoiding frame capture and reconstruction, event cameras 
+             are expected to reduce both sensing and computation energy. Demonstrating significantly lower J/bit 
+             would establish them as efficient receivers for battery-limited IoT and robotic systems, even before 
+             applying specific VLC modulation schemes. 
+              
+              
+             3.3 IMPROVING ROBUSTNESS UNDER REAL-WORLD LIGHTING CONDITIONS 
+             The third objective investigates how ambient illumination, shadows, reflections, and partial NLOS 
+             visibility affect the reliability of bit recovery from event streams. Tests will vary lux levels, measured via 
+             an external light meter, LOS and NLOS configurations, and artificial and natural lighting sources to 
+             simulate uncontrolled indoor conditions. 
+                   Performance will be quantified through BER, event timing stability, and frame drop analysis. 
+             Because event cameras respond only to brightness changes, not absolute intensity, they are expected to 
+             maintain lower BER under fluctuating illumination. If validated, this demonstrates their suitability for 
+             practical VLC in dynamic indoor environments. 
+                    
+             3.4 VISIBLE LIGHT COMMUNICATION AND COLOR SHIFT KEYING EXPERIMENTS 
+                   The fourth objective extends the experiments from Sections 3.1 and 3.2 into a CSK context and is 
+             conducted at the end of Winter 2026 and throughout Spring 2026. These experiments run in parallel with 
+             baseline timing and energy-efficiency evaluations to allow exploratory CSK development without 
+             delaying the robustness studies in Section 3.3. While the previous sections evaluate timing precision, 
+             decoding reliability, and energy efficiency under intensity-based modulation (OOK), this section repeats 
+             those same analyses using color-encoded modulation (CSK). The goal is to determine whether event 
+             driven cameras can maintain comparable temporal accuracy, decoding performance, and energy-per-bit 
+             efficiency when processing multi-chromatic VLC signals. 
+                   LED transmitters modulate intensity or color to encode binary and multilevel data symbols. Event 
+             timestamps will be decoded to recover transmitted bit sequences. Key evaluation metrics include BER 
+             under different bitrates and illumination levels, timing accuracy and event to symbol alignment, and 
+             minimum detectable pulse width and latency variance. The goal is to keep the BER below the Forward 
+             Error Correction threshold (5–10 kbit/s), consistent with previous rolling-shutter VLC results [5, 6]. 
+             SENIOR THESIS PROPOSAL - CHIP BISHOP, UCSC ELECTRICAL ENGINEERING                  6 
+                   Three event-based modulation schemes will be implemented. First is spatially separated RGB 
+             LEDs (red -> right, green -> center, blue -> left). Another is frequency-encoded channels, where each 
+             color toggles at a unique frequency (e.g., red 400 Hz, green 800 Hz, blue 1200 Hz). Another is 
+             brightness-ratio encoding, mapping intensity ratios to color states (strong = red, medium = green, weak = 
+             blue). These configurations test whether event sensors can recover chromaticity information (analogous to 
+             CSK) reliably enough for multi-channel VLC. Results will compare BER, symbol timing accuracy, and 
+             energy per bit across schemes. 
+                    
+                                                                                
+                                                     
+                           Figure 2: Flow chart demonstrating order of experimental objectives 
+                                                     
+             4.1 METHODOLOGY INTRODUCTION 
+                   How will this research be conducted? This research will be conducted in two phases: controlled 
+             laboratory experiments and real world environmental evaluation. Both phases investigate VLC 
+             performance using an event driven camera as the receiver. Each stage measures decoding accuracy, 
+             latency, and energy per bit using different modulation schemes, lighting conditions, and LOS 
+             configurations. The main equipment used will consist of the EVK4 event camera, and laptop with the 
+             Prophesee Metavision software. Other equipment includes a lux meter, power meter, Google Pixel 7a, 
+             BeagleBoneBlack, and an RGB LED array.  
+                    
+             SENIOR THESIS PROPOSAL - CHIP BISHOP, UCSC ELECTRICAL ENGINEERING                  7 
+                                                                                 
+                            Figure 3: Setup for laboratory experiments, along with the software used 
+             4.2 LABORATORY EXPERIMENTS 
+                   The laboratory phase will establish a controlled VLC environment to evaluate OOK and CSK 
+             under varying optical conditions. An RGB LED array driven by a programmable microcontroller, a 
+             BeagleBoneBlack, will transmit binary data sequences. Ambient illumination will be systematically 
+             adjusted using a dimmable light source, and measured with a calibrated external lux meter to quantify 
+             noise levels. The event driven camera will record asynchronous brightness changes generated by LED 
+             modulation, and the resulting data stream will be decoded into bit sequences using event timestamps. 
+             Power consumption of the camera and the decoding system will be measured using a power meter and 
+             normalized to energy per bit (J/bit). These experiments determine baseline BER, latency, and energy 
+             characteristics under known lighting thresholds. 
+                    
+             4.3 REAL WORLD INDOOR EVALUATIONS 
+                   Upon completion of laboratory testing, the same setup will be evaluated in real world indoor 
+             environments. Testing will be performed in different rooms throughout the Westside Research Park, a 
+             hallway with mixed natural and artificial illumination, and locations that introduce partial obstruction for 
+             limited NLOS scenarios. Lighting levels will again be measured using a lux meter to correlate ambient 
+             noise and BER. The experimental objective is to quantify how lighting fluctuations, shadowing, and 
+             reflections influence decoding reliability of OOK for event based VLC receivers. Power consumption will 
+             be monitored to ensure that low energy performance persists in non controlled and random environments. 
+                    
+                    
+             4.4 COMPARISON AGAINST CONVENTIONAL CAMERA 
+                   Finally, results from the event driven camera will be compared against those obtained using a 
+             conventional rolling shutter CMOS camera, a Google Pixel 7a, under identical lighting and modulation 
+             conditions. The comparison will include BER, latency, and energy per bit measurements, enabling an 
+             evaluation of the benefits and limitations of event driven sensors in VLC systems. This methodology 
+             SENIOR THESIS PROPOSAL - CHIP BISHOP, UCSC ELECTRICAL ENGINEERING                  8 
+             ensures that performance claims are both empirically validated and representative of real indoor 
+             communication conditions encountered by robotics, IoT sensors, and low power optical networks. 
+                    
+                    
+             5.1 TIMELINE 
+                   Work on this project began in Fall 2025 with setup and calibration of the Prophesee EVK4 event 
+             camera. During this phase, I activated and installed the necessary software to enable working with the 
+             EVK4 camera, and established a working proficiency with the operation of the camera. Additionally, all 
+             necessary measuring and experimental tools for future experiments were collected and accounted for.  
+             In Winter 2026, the focus shifts to full VLC decoding using the EVK4, including reconstruction of OOK 
+             and CSK signals from event streams and measurement of BER under different bitrates, LED drive 
+             conditions, and illumination levels. The objective of this phase is to demonstrate reliable bit extraction 
+             and generate BER results that can be compared to published rolling shutter CMOS benchmarks. 
+             Spring 2026 will quantify total energy cost per bit for event based reception by measuring sensing and 
+             compute energy under matched communication settings. This produces a direct comparison between 
+             sparse event capture and frame-based processing, establishing how much energy can be saved when using 
+             an event camera as the VLC receiver. 
+             Finally, in Fall 2026, VLC performance will be evaluated under realistic indoor lighting, including 
+             varying measured illuminance, shadows, reflections, mixed light sources, and limited NLOS. These tests 
+             determine whether event cameras maintain acceptable BER and timing fidelity in environments where 
+             conventional CMOS sensors often fail. Results from all phases will be consolidated in the senior thesis 
+             submitted in mid-December 2026. 
+             6.1 CONCLUSION 
+                   This research proposes a low cost, energy efficient VLC system that uses event driven cameras as 
+             optical receivers. By taking advantage of their asynchronous and low power sensing architecture, this 
+             work seeks to show that event cameras can reliably decode data transmitted by modulated LEDs in both 
+             controlled and real world indoor environments. The study investigates performance under variable 
+             lighting, compares results against conventional rolling shutter cameras, and evaluates communication 
+             performance using metrics such as bit error rate, latency, and energy per bit.  
+                   The results of this project have the potential to broaden the role of event driven imaging systems 
+             further than vision only applications and into low power wireless communication. If successful, event 
+             cameras could offer a new path for optical communication in battery constrained devices, enabling 
+             smarter networks of robots, autonomous sensors in agricultural settings, and IoT systems that 
+             communicate using ambient light. By reducing power consumption while maintaining reliable data 
+             transmission, this work contributes to the development of sustainable and efficient communication 
+             technologies for future embedded and neuromorphic systems. 
+              
+             7.1 REFERENCES  
+             SENIOR THESIS PROPOSAL - CHIP BISHOP, UCSC ELECTRICAL ENGINEERING                  9 
+             [1]   S. Shiba, Q. Kong, and N. Kobori, “E-VLC: A Real-World Dataset for Event-Based Visible Light  
+                   Communication and Localization,” arXiv preprint arXiv:2504.18521, 2025. 
+             [2]   K. Xu, K. Zhou, C. Zhu, S. Zhang, B. Shi, X. Li, T. Huang, and C. Xu, “When Visible Light  
+                   (Backscatter) Communication Meets Neuromorphic Cameras in V2X,” in HotMobile ’23: 
+                   Proceedings of the 24th International Workshop on Mobile Computing Systems and Applications, 
+                   New York, NY, USA, pp. 42–48, Feb. 2023.  
+             [3]   A. von Arnim, J. Lecomte, N. Elosegui Borras, S. Woźniak, and A. Pantazi, “Dynamic  
+                   event-based optical identification and communication,” Frontiers in Neurorobotics, vol. 18, Feb. 
+                   2024. 
+             [4]   D. Karunatilaka, F. Zafar, V. Kalavally, and R. Parthiban, “LED based indoor visible light  
+                   communications: State of the art,” IEEE Communications Surveys & Tutorials, vol. 17, no. 3, pp. 
+                   1649–1678, 2015. 
+             [5]   T. Finatue, B. L. Barranco, T. Serrano-Gotarredona, and C. Posch, “Sample and hold based  
+                   temporal contrast vision sensor,” U.S. Patent US10469776B2, Nov. 5, 2019. 
+             [6]   T. Borogovac, M. Rahaim, and J. B. Carruthers, “Spotlighting for visible light  
+                   communications and illumination,” in 2010 IEEE Globecom Workshops, Miami, FL, USA, 2010, 
+                   pp. 1073–1077. doi: 10.1109/GLOCOMW.2010.5700100. 
+             [7]   FRAMOS, “Metavision Evaluation Kit 4 – HD,” Product Datasheet / Online Product Page, 2024. 
+             [8]   A. A. M. Nishar, A. Marefat, and A. Ashok, “Non Line-of-Sight Optical Wireless  
+                   Communication using Neuromorphic Cameras,” arXiv preprint arXiv:2503.11226v1, Mar. 2025. 
+             [9]   A. Marcireau, S.-H. Ieng, C. Simon-Chane, and R. B. Benosman, “Event-Based Color  
+                   Segmentation With a High Dynamic Range Sensor,” Frontiers in Neuroscience, vol. 12, Apr. 
+                   2018. doi: 10.3389/fnins.2018.00135. 
+             [10]  P. Hu, P. H. Pathak, H. Zhang, Z. Yang, and P. Mohapatra, “High Speed LED-to-Camera  
+                   Communication using Color Shift Keying with Flicker Mitigation,” IEEE Transactions on Mobile 
+                   Computing, vol. 19, no. 7, pp. 1603–1619, Jul. 2020. doi: 10.1109/TMC.2019.2914435. 
+             [11]  M. Sumino, M. Ishii, S. Kaizu, D. Hisano, and Y. Nakayama, “Event Interval Modulation: A  
+                   Novel Scheme for Event-based Optical Camera Communication,” arXiv preprint, Oct. 2025. 
+              
+              
