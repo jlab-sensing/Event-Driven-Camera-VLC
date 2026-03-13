@@ -13,3 +13,6 @@ metavision*_env/
 # pychache and pyc (it is machine specific and also is automatically regenerated so no need to save it)
 __pycache__/
 *.pyc
+
+# Extracted text artifacts
+*extracted.txt
