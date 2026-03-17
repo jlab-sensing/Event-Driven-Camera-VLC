@@ -31,18 +31,29 @@ This folder contains code for two programs, both of which are necessary to trans
 
 Terminal 1:
 1. Navigate to the `userspace/` folder.
-2. `make program`
-3. Default userspace symbol file is `s31_lux_sweep_1000Hz_symbols.txt` (14,000 symbols):
+2. `make userspace`
+3. Run userspace with a chosen symbol file:
+   - Default: `sudo ./userspace`
+   - Explicit file: `sudo ./userspace s31_pw_1p00ms_symbols.txt`
+   - `make` shortcut: `make program SYMBOL_FILE=s31_pw_1p00ms_symbols.txt`
+4. Default userspace symbol file is `s31_lux_sweep_1000Hz_symbols.txt` (14,000 symbols):
    - 2,000 OFF symbols (`0`)
    - 10,000 symbols alternating `4`/`0`
    - 2,000 OFF symbols (`0`)
-4. Keep this terminal open. When you are finished with sending all of your transmissions, CTRL+C to halt the program.
+5. Pulse-width sweep symbol files (all 56,000 symbols, built for 0.25 ms PRU symbol timing):
+   - `s31_pw_1p00ms_symbols.txt`
+   - `s31_pw_0p75ms_symbols.txt`
+   - `s31_pw_0p50ms_symbols.txt`
+   - `s31_pw_0p25ms_symbols.txt`
+6. Keep this terminal open. When you are finished with sending all of your transmissions, CTRL+C to halt the program.
 
 Terminal 2:
 1. Navigate to the `pru1_pwm/` folder.
-2. `make program && sleep 1 && SYMLEN=$(wc -c < userspace/s31_lux_sweep_1000Hz_symbols.txt) && echo -n "$SYMLEN" > /dev/rpmsg_pru31 && cat /dev/rpmsg_pru31`
-3. Observe diagnostic messages on the terminal, and use CTRL+C to cancel the `cat` program after the current transmission finishes.
-4. To repeat the transmission: `SYMLEN=$(wc -c < userspace/s31_lux_sweep_1000Hz_symbols.txt) && echo -n "$SYMLEN" > /dev/rpmsg_pru31 && cat /dev/rpmsg_pru31`
+2. Build/load PRU firmware (symbol timing currently 0.25 ms): `make program`
+3. Start one transmission (example uses 1.00 ms pulse file):
+   - `sleep 1 && SYMLEN=$(wc -c < userspace/s31_pw_1p00ms_symbols.txt) && echo -n "$SYMLEN" > /dev/rpmsg_pru31 && cat /dev/rpmsg_pru31`
+4. Observe diagnostic messages on the terminal, and use CTRL+C to cancel the `cat` program after the current transmission finishes.
+5. To repeat with another pulse-width file, update only the filename in `SYMLEN=$(wc -c < userspace/<file>.txt)`.
 
 # Miscellaneous
 

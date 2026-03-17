@@ -343,7 +343,7 @@ void main(void) {
             // PWMSS1.EPWM_TBCTL_bit.CTRMODE = 0b00;  // counter enable
             // PWMSS2.EPWM_TBCTL_bit.CTRMODE = 0b00;  // counter enable
             // PRU_PRINT_UNSIGNED_INT(buffer1[i]);
-            __delay_cycles(200000);  // 200000 * 5 ns == 1,000,000 ns == 1 ms
+            __delay_cycles(50000);   // 50000 * 5 ns == 250,000 ns == 0.25 ms
             // PWMSS1.EPWM_TBCTL_bit.CTRMODE = 0b11;  // counter disable
             // PWMSS2.EPWM_TBCTL_bit.CTRMODE = 0b11;  // counter disable
 

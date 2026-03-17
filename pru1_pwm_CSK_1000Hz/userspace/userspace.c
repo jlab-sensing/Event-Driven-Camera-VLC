@@ -6,8 +6,8 @@
 #include <fcntl.h>
 
 //#define DATA_FILENAME "CFK_symbols_interleaved_translated_1000Hzhope.txt"
-// Deterministic OOK-like pattern for Section 3.1 illumination sweeps.
-#define DATA_FILENAME "s31_lux_sweep_1000Hz_symbols.txt"
+// Default symbol file. You can override from CLI: ./userspace <symbol_file>.
+#define DEFAULT_DATA_FILENAME "s31_lux_sweep_1000Hz_symbols.txt"
 #define DEV_MEM_FILENAME "/dev/mem"
 
 #define PING_ADDR		0x9FFC0000
@@ -22,11 +22,17 @@ int main(int argc, char** argv) {
     int f_mem = 0;
     char *ping_ptr, *pong_ptr, *indicator;
     char c;
+    const char* data_filename = DEFAULT_DATA_FILENAME;
 	// uint8_t curr_buff = PING;
+
+    if (argc > 1 && argv[1] && argv[1][0] != '\0') {
+        data_filename = argv[1];
+    }
     
-    f_data = fopen(DATA_FILENAME, "r");
+    printf("Using symbol file: %s\r\n", data_filename);
+    f_data = fopen(data_filename, "r");
     if (!f_data) {
-        printf("Failed to open \"%s\" in mode \"r\", exiting.\r\n", DATA_FILENAME);
+        printf("Failed to open \"%s\" in mode \"r\", exiting.\r\n", data_filename);
         return EXIT_FAILURE;
     }
     
@@ -58,7 +64,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < (getpagesize()*32); i++){
         c = fgetc(f_data);
         if (c == EOF || c == 0xFF){
-            printf("Reached EOF on \"%s\".\r\n", DATA_FILENAME);
+            printf("Reached EOF on \"%s\".\r\n", data_filename);
             // fclose(f_output_copy);
             fclose(f_data);
             
@@ -75,7 +81,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < (getpagesize()*32); i++){
         c = fgetc(f_data);
         if (c == EOF || c == 0xFF){
-            printf("Reached EOF on \"%s\".\r\n", DATA_FILENAME);
+            printf("Reached EOF on \"%s\".\r\n", data_filename);
             // fclose(f_output_copy);
             fclose(f_data);
             return EXIT_FAILURE;
@@ -97,7 +103,7 @@ int main(int argc, char** argv) {
         for (int i = 0; i < (getpagesize()*32); i++){
             c = fgetc(f_data);
             if (c == EOF || c == 0xFF){
-                printf("Reached EOF on \"%s\".\r\n", DATA_FILENAME);
+                printf("Reached EOF on \"%s\".\r\n", data_filename);
                 // fclose(f_output_copy);
                 fclose(f_data);
                 return EXIT_FAILURE;
@@ -111,7 +117,7 @@ int main(int argc, char** argv) {
         for (int i = 0; i < (getpagesize()*32); i++){
             c = fgetc(f_data);
             if (c == EOF || c == 0xFF){
-                printf("Reached EOF on \"%s\".\r\n", DATA_FILENAME);
+                printf("Reached EOF on \"%s\".\r\n", data_filename);
                 // fclose(f_output_copy);
                 fclose(f_data);
                 return EXIT_FAILURE;
