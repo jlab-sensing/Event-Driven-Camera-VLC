@@ -34,24 +34,26 @@ Terminal 1:
 2. `make userspace`
 3. Run userspace with a chosen symbol file:
    - Default: `sudo ./userspace`
-   - Explicit file: `sudo ./userspace s31_pw_1p00ms_symbols.txt`
-   - `make` shortcut: `make program SYMBOL_FILE=s31_pw_1p00ms_symbols.txt`
+   - Explicit file: `sudo ./userspace s31_pw50us_0p20ms_symbols.txt`
+   - `make` shortcut: `make program SYMBOL_FILE=s31_pw50us_0p20ms_symbols.txt`
 4. Default userspace symbol file is `s31_lux_sweep_1000Hz_symbols.txt` (14,000 symbols):
    - 2,000 OFF symbols (`0`)
    - 10,000 symbols alternating `4`/`0`
    - 2,000 OFF symbols (`0`)
-5. Pulse-width sweep symbol files (all 56,000 symbols, built for 0.25 ms PRU symbol timing):
-   - `s31_pw_1p00ms_symbols.txt`
-   - `s31_pw_0p75ms_symbols.txt`
-   - `s31_pw_0p50ms_symbols.txt`
-   - `s31_pw_0p25ms_symbols.txt`
-6. Keep this terminal open. When you are finished with sending all of your transmissions, CTRL+C to halt the program.
+5. Current follow-up pulse-width sweep files (all 280,000 symbols, built for 0.05 ms PRU symbol timing):
+   - `s31_pw50us_0p25ms_symbols.txt`
+   - `s31_pw50us_0p20ms_symbols.txt`
+   - `s31_pw50us_0p15ms_symbols.txt`
+   - `s31_pw50us_0p10ms_symbols.txt`
+   - `s31_pw50us_0p05ms_symbols.txt`
+6. Legacy `s31_pw_1p00ms_symbols.txt` / `0p75ms` / `0p50ms` / `0p25ms` files were for the earlier 0.25 ms PRU timing and should not be mixed with the current 0.05 ms firmware.
+7. Keep this terminal open. When you are finished with sending all of your transmissions, CTRL+C to halt the program.
 
 Terminal 2:
 1. Navigate to the `pru1_pwm/` folder.
-2. Build/load PRU firmware (symbol timing currently 0.25 ms): `make program`
-3. Start one transmission (example uses 1.00 ms pulse file):
-   - `sleep 1 && SYMLEN=$(wc -c < userspace/s31_pw_1p00ms_symbols.txt) && echo -n "$SYMLEN" > /dev/rpmsg_pru31 && cat /dev/rpmsg_pru31`
+2. Build/load PRU firmware (symbol timing currently 0.05 ms): `make program`
+3. Start one transmission (example uses the 0.20 ms pulse file):
+   - `sleep 1 && SYMLEN=$(wc -c < userspace/s31_pw50us_0p20ms_symbols.txt) && echo -n "$SYMLEN" > /dev/rpmsg_pru31 && cat /dev/rpmsg_pru31`
 4. Observe diagnostic messages on the terminal, and use CTRL+C to cancel the `cat` program after the current transmission finishes.
 5. To repeat with another pulse-width file, update only the filename in `SYMLEN=$(wc -c < userspace/<file>.txt)`.
 

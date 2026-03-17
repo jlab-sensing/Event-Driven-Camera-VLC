@@ -16,13 +16,31 @@
 #define PING			0
 #define PONG			1
 
+int fill_buffer_from_file(FILE* f_data, char* buffer_ptr, int buffer_len) {
+    int c;
+
+    for (int i = 0; i < buffer_len; i++) {
+        c = fgetc(f_data);
+        if (c == EOF || c == 0xFF) {
+            // Pad the remainder with OFF so the PRU never reads stale data.
+            for (int j = i; j < buffer_len; j++) {
+                buffer_ptr[j] = '0';
+            }
+            return 1;
+        }
+        buffer_ptr[i] = (char)c;
+    }
+
+    return 0;
+}
+
 int main(int argc, char** argv) {
     FILE* f_data = NULL;
     // FILE* f_output_copy = NULL;
     int f_mem = 0;
     char *ping_ptr, *pong_ptr, *indicator;
-    char c;
     const char* data_filename = DEFAULT_DATA_FILENAME;
+    const int buffer_size = getpagesize() * 32;
 	// uint8_t curr_buff = PING;
 
     if (argc > 1 && argv[1] && argv[1][0] != '\0') {
@@ -49,8 +67,8 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 	/* mmap 128kB ping and pong buffers */
-    ping_ptr  = (char *) mmap(0, getpagesize()*32, PROT_READ|PROT_WRITE, MAP_SHARED, f_mem, PING_ADDR);
-    pong_ptr  = (char *) mmap(0, getpagesize()*32, PROT_READ|PROT_WRITE, MAP_SHARED, f_mem, PONG_ADDR);
+    ping_ptr  = (char *) mmap(0, buffer_size, PROT_READ|PROT_WRITE, MAP_SHARED, f_mem, PING_ADDR);
+    pong_ptr  = (char *) mmap(0, buffer_size, PROT_READ|PROT_WRITE, MAP_SHARED, f_mem, PONG_ADDR);
     indicator = (char *) mmap(0, getpagesize(),    PROT_READ|PROT_WRITE, MAP_SHARED, f_mem, INDICATOR_ADDR);
     if(ping_ptr == NULL || pong_ptr == NULL || indicator == NULL)
     {
@@ -61,33 +79,25 @@ int main(int argc, char** argv) {
     printf("Pre-filling both buffers.\r\n");
     
     printf("ping buffer\r\n");
-    for (int i = 0; i < (getpagesize()*32); i++){
-        c = fgetc(f_data);
-        if (c == EOF || c == 0xFF){
-            printf("Reached EOF on \"%s\".\r\n", data_filename);
-            // fclose(f_output_copy);
-            fclose(f_data);
-            
-            printf("holding open (CTRL+C to close and release held memory)\r\n");
-            while(1); // Keep process alive so PRU can keep reading the preloaded buffer.
-            
-            return EXIT_FAILURE;
-        }
-        // fputc(c, f_output_copy);
-        ping_ptr[i] = c;
+    if (fill_buffer_from_file(f_data, ping_ptr, buffer_size)) {
+        printf("Reached EOF on \"%s\".\r\n", data_filename);
+        fclose(f_data);
+
+        printf("holding open (CTRL+C to close and release held memory)\r\n");
+        while(1); // Keep process alive so PRU can keep reading the preloaded buffer.
+
+        return EXIT_FAILURE;
     }
     
     printf("pong buffer\r\n");
-    for (int i = 0; i < (getpagesize()*32); i++){
-        c = fgetc(f_data);
-        if (c == EOF || c == 0xFF){
-            printf("Reached EOF on \"%s\".\r\n", data_filename);
-            // fclose(f_output_copy);
-            fclose(f_data);
-            return EXIT_FAILURE;
-        }
-        // fputc(c, f_output_copy);
-        pong_ptr[i] = c;
+    if (fill_buffer_from_file(f_data, pong_ptr, buffer_size)) {
+        printf("Reached EOF on \"%s\".\r\n", data_filename);
+        fclose(f_data);
+
+        printf("holding open (CTRL+C to close and release held memory)\r\n");
+        while(1); // Keep process alive so PRU can keep reading the preloaded buffers.
+
+        return EXIT_FAILURE;
     }
     
     // Indicator points to which buffer is currently in use by the PRU.
@@ -100,30 +110,26 @@ int main(int argc, char** argv) {
         
         while(indicator[0] == PING); // Wait for the ping buffer to be released.
         
-        for (int i = 0; i < (getpagesize()*32); i++){
-            c = fgetc(f_data);
-            if (c == EOF || c == 0xFF){
-                printf("Reached EOF on \"%s\".\r\n", data_filename);
-                // fclose(f_output_copy);
-                fclose(f_data);
-                return EXIT_FAILURE;
-            }
-            // fputc(c, f_output_copy);
-            ping_ptr[i] = c;
+        if (fill_buffer_from_file(f_data, ping_ptr, buffer_size)) {
+            printf("Reached EOF on \"%s\".\r\n", data_filename);
+            fclose(f_data);
+
+            printf("holding open (CTRL+C to close and release held memory)\r\n");
+            while(1); // Keep process alive after padding the final partial buffer with OFF symbols.
+
+            return EXIT_FAILURE;
         }
         
         while(indicator[0] == PONG); // Wait for the pong buffer to be released.
         
-        for (int i = 0; i < (getpagesize()*32); i++){
-            c = fgetc(f_data);
-            if (c == EOF || c == 0xFF){
-                printf("Reached EOF on \"%s\".\r\n", data_filename);
-                // fclose(f_output_copy);
-                fclose(f_data);
-                return EXIT_FAILURE;
-            }
-            // fputc(c, f_output_copy);
-            pong_ptr[i] = c;
+        if (fill_buffer_from_file(f_data, pong_ptr, buffer_size)) {
+            printf("Reached EOF on \"%s\".\r\n", data_filename);
+            fclose(f_data);
+
+            printf("holding open (CTRL+C to close and release held memory)\r\n");
+            while(1); // Keep process alive after padding the final partial buffer with OFF symbols.
+
+            return EXIT_FAILURE;
         }
     }
 

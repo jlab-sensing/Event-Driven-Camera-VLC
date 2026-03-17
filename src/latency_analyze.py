@@ -210,7 +210,7 @@ def wrap_label_on_underscores(label: str, max_line_len: int = 16) -> str:
 
 
 def infer_pulse_width_token(label: str) -> Optional[str]:
-    match = re.search(r"(?:^|_)pw_(\d+(?:p\d+)?)ms(?:_|$)", label)
+    match = re.search(r"(?:^|_)pw(?:\d+us)?_(\d+(?:p\d+)?)ms(?:_|$)", label)
     if not match:
         return None
     return match.group(1)
