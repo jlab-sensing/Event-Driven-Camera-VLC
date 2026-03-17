@@ -384,10 +384,10 @@
  "roi_state": {
   "window": [
    {
-    "x": 400,
-    "y": 200,
-    "width": 500,
-    "height": 400
+    "x": 450,
+    "y": 250,
+    "width": 300,
+    "height": 300
    }
   ],
   "columns": [],

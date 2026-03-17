@@ -2,7 +2,7 @@ import argparse
 import csv
 import os
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -209,6 +209,118 @@ def wrap_label_on_underscores(label: str, max_line_len: int = 16) -> str:
     return "\n".join(lines)
 
 
+def infer_pulse_width_token(label: str) -> Optional[str]:
+    match = re.search(r"(?:^|_)pw_(\d+(?:p\d+)?)ms(?:_|$)", label)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def pulse_width_token_to_ms(token: str) -> float:
+    return float(token.replace("p", "."))
+
+
+def infer_trial_suffix(label: str) -> Optional[str]:
+    match = re.search(r"(?:^|_)t(\d+)$", label)
+    if match:
+        return f"t{match.group(1)}"
+
+    match = re.search(r"(?:^|_)trial(\d+)(?:_|$)", label)
+    if match:
+        return f"trial{match.group(1)}"
+
+    return None
+
+
+def format_trial_label_for_plot(label: str) -> str:
+    pulse_width_token = infer_pulse_width_token(label)
+    trial_suffix = infer_trial_suffix(label)
+    if pulse_width_token:
+        base = f"{pulse_width_token}ms"
+        return f"{base}\n{trial_suffix}" if trial_suffix else base
+    return wrap_label_on_underscores(label, max_line_len=12)
+
+
+def finite_mean(values: np.ndarray) -> float:
+    if values.size == 0:
+        return float("nan")
+    return float(np.mean(values))
+
+
+def finite_std(values: np.ndarray) -> float:
+    if values.size == 0:
+        return float("nan")
+    return float(np.std(values))
+
+
+def build_pulse_width_summary(
+    summary_rows: List[Dict[str, float]],
+    latencies_by_trial: Dict[str, np.ndarray],
+) -> List[Dict[str, float]]:
+    grouped_trials: Dict[str, List[Dict[str, float]]] = {}
+
+    for row in summary_rows:
+        if row["trial"] == "OVERALL":
+            continue
+
+        pulse_width_token = infer_pulse_width_token(str(row["trial"]))
+        if pulse_width_token is None:
+            pulse_width_token = infer_pulse_width_token(str(row["raw_file"]))
+        if pulse_width_token is None:
+            continue
+
+        grouped_trials.setdefault(pulse_width_token, []).append(row)
+
+    grouped_rows: List[Dict[str, float]] = []
+    for pulse_width_token in sorted(grouped_trials.keys(), key=pulse_width_token_to_ms):
+        rows = grouped_trials[pulse_width_token]
+        pooled_latencies = [
+            latencies_by_trial.get(str(row["trial"]), np.array([], dtype=np.float64))
+            for row in rows
+        ]
+        pooled = (
+            np.concatenate([lat for lat in pooled_latencies if lat.size > 0])
+            if any(lat.size > 0 for lat in pooled_latencies)
+            else np.array([], dtype=np.float64)
+        )
+        pooled_iqr_outliers = iqr_outlier_mask(pooled)
+        pooled_stats = summarize_latency(
+            latency_us=pooled,
+            detected=np.ones(pooled.shape, dtype=bool),
+            iqr_outliers=pooled_iqr_outliers,
+        )
+
+        total_toggles = int(sum(int(row["n_toggles"]) for row in rows))
+        total_detected = int(sum(int(row["n_detected"]) for row in rows))
+        pooled_stats["n_toggles"] = total_toggles
+        pooled_stats["n_detected"] = total_detected
+        pooled_stats["detected_frac"] = (
+            float(total_detected / total_toggles) if total_toggles > 0 else float("nan")
+        )
+
+        trial_detected = np.array(
+            [float(row["detected_frac"]) for row in rows if np.isfinite(row["detected_frac"])],
+            dtype=np.float64,
+        )
+        trial_mean_latencies = np.array(
+            [float(row["latency_mean_us"]) for row in rows if np.isfinite(row["latency_mean_us"])],
+            dtype=np.float64,
+        )
+
+        grouped_rows.append({
+            "pulse_width": f"{pulse_width_token}ms",
+            "pulse_width_ms": pulse_width_token_to_ms(pulse_width_token),
+            "n_trials": len(rows),
+            "trial_detected_frac_mean": finite_mean(trial_detected),
+            "trial_detected_frac_std": finite_std(trial_detected),
+            "trial_latency_mean_us_mean": finite_mean(trial_mean_latencies),
+            "trial_latency_mean_us_std": finite_std(trial_mean_latencies),
+            **pooled_stats,
+        })
+
+    return grouped_rows
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Compute LED-toggle to first-event latency from one or more .raw trials."
@@ -272,6 +384,7 @@ def main():
 
     per_pulse_path = os.path.join(data_dir, f"{args.out_prefix}_per_pulse.csv")
     summary_path = os.path.join(data_dir, f"{args.out_prefix}_summary.csv")
+    pulse_width_summary_path = os.path.join(data_dir, f"{args.out_prefix}_by_pulse_width_summary.csv")
     max_latency_s = args.max_latency_ms / 1000.0
 
     summary_rows: List[Dict[str, float]] = []
@@ -382,6 +495,24 @@ def main():
     print("Saved per-pulse CSV:", per_pulse_path)
     print("Saved summary CSV:", summary_path)
 
+    pulse_width_summary_rows = build_pulse_width_summary(summary_rows, latencies_by_trial)
+    if pulse_width_summary_rows:
+        pulse_width_header = [
+            "pulse_width", "pulse_width_ms", "n_trials",
+            "n_toggles", "n_detected", "detected_frac",
+            "trial_detected_frac_mean", "trial_detected_frac_std",
+            "trial_latency_mean_us_mean", "trial_latency_mean_us_std",
+            "latency_mean_us", "latency_std_us", "latency_median_us", "latency_p95_us",
+            "latency_min_us", "latency_max_us",
+            "iqr_outlier_count", "iqr_outlier_frac",
+        ]
+        with open(pulse_width_summary_path, "w", newline="", encoding="utf-8") as fg:
+            w = csv.DictWriter(fg, fieldnames=pulse_width_header)
+            w.writeheader()
+            for row in pulse_width_summary_rows:
+                w.writerow(row)
+        print("Saved pulse-width summary CSV:", pulse_width_summary_path)
+
     if not args.no_plot:
         non_empty = [(k, v) for k, v in latencies_by_trial.items() if v.size > 0]
         if non_empty:
@@ -398,21 +529,29 @@ def main():
             plt.savefig(hist_path, dpi=300)
             print("Saved plot:", hist_path)
 
-            plt.figure(figsize=(10, 6))
-            labels = [wrap_label_on_underscores(k) for k, _ in non_empty]
+            fig_width = max(12.0, 1.6 * len(non_empty))
+            plt.figure(figsize=(fig_width, 7))
+            labels = [format_trial_label_for_plot(k) for k, _ in non_empty]
             data = [v for _, v in non_empty]
-            plt.boxplot(data, labels=labels, showfliers=True)
+            try:
+                plt.boxplot(data, tick_labels=labels, showfliers=True)
+            except TypeError:
+                plt.boxplot(data, labels=labels, showfliers=True)
             plt.xlabel("trial")
             plt.ylabel("latency (us)")
             plt.title("Latency boxplot by trial")
             plt.grid(True)
+            plt.xticks(rotation=25, ha="right", fontsize=9)
             plt.tight_layout()
-            plt.subplots_adjust(bottom=0.20)
+            plt.subplots_adjust(bottom=0.24)
             box_path = os.path.join(plot_dir, f"{args.out_prefix}_latency_boxplot_by_trial.png")
             plt.savefig(box_path, dpi=300)
             print("Saved plot:", box_path)
 
-            plt.show()
+            if "agg" in plt.get_backend().lower():
+                plt.close("all")
+            else:
+                plt.show()
         else:
             print("No valid latencies to plot.")
 
