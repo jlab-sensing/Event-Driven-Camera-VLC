@@ -57,6 +57,7 @@
 #define INDICATOR_ADDR  0x9FFB0000
 #define PING			0
 #define PONG			1
+#define SHARED_BUFFER_LEN 0x00020000
 
 /* ## PIN DEFINES ## */
 
@@ -153,11 +154,19 @@ void main(void) {
     uint16_t src, dst, len;
     volatile uint8_t *status;
     uint32_t i;
-    char* symbols;
+    char* ping_symbols;
+    char* pong_symbols;
+    volatile uint8_t* indicator;
+    uint32_t chunk_len;
+    uint32_t symbols_remaining;
+    uint8_t curr_buffer;
+    char* curr_symbols;
     uint32_t symbols_length = 0;
     volatile char c;
     
-    symbols = (char*)PING_ADDR;
+    ping_symbols = (char*)PING_ADDR;
+    pong_symbols = (char*)PONG_ADDR;
+    indicator = (volatile uint8_t*)INDICATOR_ADDR;
 
     /* Allow OCP master port access by the PRU so the PRU can read external memories */
     CT_CFG.SYSCFG_bit.STANDBY_INIT = 0;
@@ -298,9 +307,16 @@ void main(void) {
         
         PRU_PRINT_LITERAL("CSK transmission start.\r\n");
         
-        for (i = 0; i < symbols_length; i++) {
-            __R30 |= OUTPUT_PIN;
-            c = *(symbols+i);
+        curr_buffer = PING;
+        symbols_remaining = symbols_length;
+        while (symbols_remaining > 0) {
+            curr_symbols = (curr_buffer == PING) ? ping_symbols : pong_symbols;
+            indicator[0] = curr_buffer;
+            chunk_len = (symbols_remaining > SHARED_BUFFER_LEN) ? SHARED_BUFFER_LEN : symbols_remaining;
+
+            for (i = 0; i < chunk_len; i++) {
+                __R30 |= OUTPUT_PIN;
+                c = curr_symbols[i];
 
                 switch (c) {
                 case '0': // treat legacy '0' as OFF for compatibility
@@ -337,19 +353,24 @@ void main(void) {
                 default:
                     break;
             }
-            // PWMSS1.EPWM_TBCNT = PWMSS1.EPWM_TBPRD - 1;
-            // PWMSS2.EPWM_TBCNT = PWMSS2.EPWM_TBPRD - 1;
+                // PWMSS1.EPWM_TBCNT = PWMSS1.EPWM_TBPRD - 1;
+                // PWMSS2.EPWM_TBCNT = PWMSS2.EPWM_TBPRD - 1;
 
-            // PWMSS1.EPWM_TBCTL_bit.CTRMODE = 0b00;  // counter enable
-            // PWMSS2.EPWM_TBCTL_bit.CTRMODE = 0b00;  // counter enable
-            // PRU_PRINT_UNSIGNED_INT(buffer1[i]);
-            __delay_cycles(10000);   // 10000 * 5 ns == 50,000 ns == 0.05 ms
-            // PWMSS1.EPWM_TBCTL_bit.CTRMODE = 0b11;  // counter disable
-            // PWMSS2.EPWM_TBCTL_bit.CTRMODE = 0b11;  // counter disable
+                // PWMSS1.EPWM_TBCTL_bit.CTRMODE = 0b00;  // counter enable
+                // PWMSS2.EPWM_TBCTL_bit.CTRMODE = 0b00;  // counter enable
+                // PRU_PRINT_UNSIGNED_INT(buffer1[i]);
+                __delay_cycles(10000);   // 10000 * 5 ns == 50,000 ns == 0.05 ms
+                // PWMSS1.EPWM_TBCTL_bit.CTRMODE = 0b11;  // counter disable
+                // PWMSS2.EPWM_TBCTL_bit.CTRMODE = 0b11;  // counter disable
 
-            // // Rather than set the duty cycle to 0, consider modifying the AQ or CTL (freeze)
-            // // PWMSS1.EPWM_AQ
-            __R30 &= ~OUTPUT_PIN;
+                // // Rather than set the duty cycle to 0, consider modifying the AQ or CTL (freeze)
+                // // PWMSS1.EPWM_AQ
+                __R30 &= ~OUTPUT_PIN;
+            }
+
+            symbols_remaining -= chunk_len;
+            curr_buffer = (curr_buffer == PING) ? PONG : PING;
+            indicator[0] = curr_buffer; // Release the buffer just consumed so userspace can refill it.
         }
 
         PWMSS1.EPWM_CMPA = REDOFF;
