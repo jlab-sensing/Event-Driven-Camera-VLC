@@ -195,7 +195,7 @@
   <main>
     <header>
       <h1>ECE 195 Winter Quarter Writeup</h1>
-      <p class="lede">Revision prepared on March 23, 2026. This version directly addresses the March 19, 2026 feedback by adding plots and tables to the reported Section 3.1 results and by appending a linked GitHub commit log to the accomplishments section.</p>
+      
     </header>
 
     <section>
@@ -219,9 +219,9 @@
 
     <section>
       <h2>What Was Actually Accomplished</h2>
-      <div class="callout">
-        The strongest quarter-one outcome was that the EVK4 baseline pipeline is now reproducible. The repository now contains reusable analysis scripts for latency, illumination sweeps, pulse-width sweeps, and camera-bias sweeps, and those scripts produce repeatable CSV summaries and plots instead of one-off manual inspection notes.
-      </div>
+     
+      <p>The strongest quarter-one outcome was that the EVK4 baseline pipeline is now reproducible. The repository now contains reusable analysis scripts for latency, illumination sweeps, pulse-width sweeps, and camera-bias sweeps, and those scripts produce repeatable CSV summaries and plots instead of one-off manual inspection notes.
+     
 
       <p>For timing responsiveness, three corrected baseline latency trials were completed in the <code>section3_1_1000Hz</code> capture set and reanalyzed with the repository latency pipeline. An earlier 30-pulse interpretation was archived after it became clear that the recording window did not actually contain all 30 expected pulses, which artificially reduced the detection rate. After correcting the schedule to the 10 pulses that were truly present in the capture window, the final baseline summary detected all 30 out of 30 pulses across the three trials. The pooled result was a mean first-event latency of 16.1 microseconds, a median latency of 6.5 microseconds, a 95th-percentile latency of 61.7 microseconds, and a worst case of 126.0 microseconds. Figure 1 and Table 1 summarize that corrected result.</p>
 
@@ -387,7 +387,7 @@
 
     <section>
       <h2>Remaining Work Entering Spring 2026</h2>
-      <p>As of March 23, 2026, the major remaining baseline objective is no longer to prove that sub-50 us sensing is possible, because that has already been demonstrated down to 10 us in the controlled setup used this quarter. The remaining question is to locate the actual temporal failure point of the EVK4 under those same conditions, which will require pushing the transmitter and capture schedule below 10 us and then testing whether detection remains perfect or begins to break down.</p>
+      <p>As of March 23, 2026, the major remaining baseline objective is no longer to prove that sub-50 us pulse width sensing is possible, since reliable detection was demonstrated down to 10 us. The next step is to determine the true failure point of the EVK4 under the controlled setup, but further characterization below 10 us was limited this quarter by instability in the LED transmitter setup. </p>
       <p>The benchmark replication from Section 3.1 is also still outstanding. That next step should use known transmitted bit sequences, controlled frequency sweeps, and BER or message-accuracy measurements so that the EVK4 results can be compared directly against the published baseline from von Arnim et al. Once that work is complete, the Section 3.1 baseline story will be much stronger because it will include not only latency and pulse-width limits, but also an accuracy-based comparison against prior art.</p>
       <p>Spring quarter should then focus on two broader thesis directions. First, Section 3.2 should begin instrumented power measurements so that sensing energy, host-side compute cost, and total energy per bit can be quantified under matched OOK settings. Second, Section 3.4 should move the existing RGB transmitter groundwork into real CSK experiments by collecting event-camera captures, building the corresponding decoding pipeline, and reporting symbol accuracy or BER under those multicolor transmissions.</p>
     </section>
