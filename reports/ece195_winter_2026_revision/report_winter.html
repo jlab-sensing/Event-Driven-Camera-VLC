@@ -220,7 +220,7 @@
     <section>
       <h2>What Was Actually Accomplished</h2>
      
-      <p>The strongest quarter-one outcome was that the EVK4 baseline pipeline is now reproducible. The repository now contains reusable analysis scripts for latency, illumination sweeps, pulse-width sweeps, and camera-bias sweeps, and those scripts produce repeatable CSV summaries and plots instead of one-off manual inspection notes.
+      <p>The strongest quarter-one outcome was that the EVK4 baseline pipeline is now reproducible. The repository now contains reusable analysis scripts for latency, inter-event timing, illumination sweeps, pulse-width sweeps, and camera-bias sweeps, and those scripts produce repeatable CSV summaries and plots instead of one-off manual inspection notes.
      
 
       <p>For timing responsiveness, three corrected baseline latency trials were completed in the <code>section3_1_1000Hz</code> capture set and reanalyzed with the repository latency pipeline. An earlier 30-pulse interpretation was archived after it became clear that the recording window did not actually contain all 30 expected pulses, which artificially reduced the detection rate. After correcting the schedule to the 10 pulses that were truly present in the capture window, the final baseline summary detected all 30 out of 30 pulses across the three trials. The pooled result was a mean first-event latency of 16.1 microseconds, a median latency of 6.5 microseconds, a 95th-percentile latency of 61.7 microseconds, and a worst case of 126.0 microseconds. Figure 1 and Table 1 summarize that corrected result.</p>
@@ -274,6 +274,13 @@
         </tbody>
       </table>
 
+      <p>Inter-event timing behavior was then analyzed on those same corrected 1000 Hz baseline captures to characterize how densely the EVK4 responded once a pulse was detected. For each of the 30 detected pulses, the analysis measured consecutive event spacing within a fixed 250 us window after the first detected event. All 30 pulses produced analyzable event bursts in that window. Pooled across the three trials, the mean burst contained 38.8 events over an average duration of 236.0 us, with a median inter-event interval of 3.0 us and a 95th-percentile interval of 19.3 us. Figure 2 summarizes the overall inter-event interval distribution and shows that the baseline response was not only prompt, but also temporally dense after each edge.</p>
+
+      <figure>
+        <img src="../../plots/inter%20event/s31_interevent_1000Hz_dt_histogram.png" alt="Histogram of all Section 3.1 inter-event intervals measured within 250 microseconds after each detected pulse.">
+        <figcaption><strong>Figure 2.</strong> Histogram of all Section 3.1 inter-event intervals measured within a 250 us window after the first detected event for each pulse in the corrected 1000 Hz baseline trials. The distribution is concentrated at low-microsecond spacing, with a median of 3.0 us and a 95th-percentile of 19.3 us.</figcaption>
+      </figure>
+
       <p>For minimum detectable pulse width, the initial sweep at 1.00 ms, 0.75 ms, 0.50 ms, and 0.25 ms achieved full detection across all 120 scheduled pulses. A second sweep then extended the study to 0.20 ms, 0.15 ms, 0.10 ms, and 0.05 ms, again with 30 out of 30 detections at every tested setting. After the March 16 and March 18 follow-up work, the sweep was pushed further to 0.04 ms, 0.03 ms, 0.02 ms, and 0.01 ms; those runs also produced full detection, with 20 out of 20 detections at every setting. As of March 18, 2026, every tested pulse width from 1.00 ms down to 0.01 ms was detected successfully, giving 320 detections out of 320 scheduled pulses across the combined sweeps. The practical lower bound improved from the originally reported 50 us to 10 us, and the true failure point still was not reached. Table 2 shows the combined pulse-width summary.</p>
 
       <table class="tight">
@@ -305,11 +312,11 @@
       </table>
       <p class="small-note">The 0.01 ms through 0.04 ms results were added after the initial report draft. They materially strengthen the baseline claim because they show that the EVK4 still responds reliably at 10 us under the controlled setup used this quarter.</p>
 
-      <p>For illumination sensitivity, a lux sweep was completed at 0, 62, 300, and 512 lux with three trials at each lighting level. Those experiments generated event-rate, noise-rate, and SNR summaries. Across all four ambient-light conditions, the transmitted signal remained strongly separated from the background according to the current SNR proxy. Mean SNR z-score values ranged from about 6.5e3 to 1.03e4, which indicates that the camera continued to produce a strong signal-driven event response even as room lighting changed substantially. Figure 2 and Table 3 summarize the illumination result.</p>
+      <p>For illumination sensitivity, a lux sweep was completed at 0, 62, 300, and 512 lux with three trials at each lighting level. Those experiments generated event-rate, noise-rate, and SNR summaries. Across all four ambient-light conditions, the transmitted signal remained strongly separated from the background according to the current SNR proxy. Mean SNR z-score values ranged from about 6.5e3 to 1.03e4, which indicates that the camera continued to produce a strong signal-driven event response even as room lighting changed substantially. Figure 3 and Table 3 summarize the illumination result.</p>
 
       <figure>
         <img src="../../plots/lux%20sweep/s31_lux_sweep_1000Hz_snr_vs_lux_errorbar.png" alt="SNR versus lux plot with error bars for the EVK4 baseline illumination sweep.">
-        <figcaption><strong>Figure 2.</strong> SNR z-score versus ambient illumination for the 1000 Hz lux sweep. The response remained strongly separated from the measured background at every tested lux level.</figcaption>
+        <figcaption><strong>Figure 3.</strong> SNR z-score versus ambient illumination for the 1000 Hz lux sweep. The response remained strongly separated from the measured background at every tested lux level.</figcaption>
       </figure>
 
       <table class="tight">

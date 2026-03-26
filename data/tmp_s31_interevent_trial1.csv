@@ -1,0 +1,2 @@
+raw_file,total_events,bin_ms,onset_s,noise_mean,noise_std,signal_mean,signal_std,peaks_detected,freq_hz,period_mean_ms,period_std_ms,dt_mean_us,dt_median_us,dt_p95_us,snr_ratio,snr_z
+R01_s31_latency_trial1_1000Hz.raw,15610448,1.0,11.428994,1854.562,16333.96091987966,310.1968085106383,6472.02217992465,1,nan,nan,nan,0.01598606015554971,0.0,0.0,0.16726149274634025,-0.09454933797531945
