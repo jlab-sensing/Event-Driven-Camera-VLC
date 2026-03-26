@@ -16,6 +16,7 @@ def load_timestamps_us(raw_path: str) -> np.ndarray:
     events = EventsIterator(input_path=raw_path)
     ts = []
     for evs in events:
+        # Keep appending chunks until the full capture is loaded.
         ts.append(evs["t"])
     return np.concatenate(ts).astype(np.int64) if ts else np.array([], dtype=np.int64)
 
@@ -37,9 +38,11 @@ def main():
     add_common_args(ap)  # adds --raw --save_csv --out --no_plot
     args = ap.parse_args()
 
+    # Stop early if the requested raw file does not exist.
     if not os.path.exists(args.raw):
         raise FileNotFoundError(args.raw)
 
+    # Load timestamps once, then derive any custom metrics from that same array.
     ts_us = load_timestamps_us(args.raw)
 
     # ---- Example NEW metrics ----
@@ -57,6 +60,7 @@ def main():
     # ---- Plot + auto-save to plots/ ----
     if not args.no_plot:
         if ts_us.size:
+            # Shift the capture so the first event starts at t = 0.
             t = (ts_us - ts_us.min()) * 1e-6
 
             # Replace this with your real signal later

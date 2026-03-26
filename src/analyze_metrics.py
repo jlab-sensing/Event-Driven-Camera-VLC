@@ -38,6 +38,7 @@ def event_rate_signal(time_s: np.ndarray, bin_width_s: float) -> tuple[np.ndarra
     """Return (t_centers, counts_per_bin) using histogram binning."""
     if time_s.size == 0:
         return np.array([]), np.array([])
+    # Cover the full capture with evenly spaced histogram bins.
     t0, t1 = float(time_s.min()), float(time_s.max())
     bins = np.arange(t0, t1 + bin_width_s, bin_width_s)
     counts, edges = np.histogram(time_s, bins=bins)
@@ -206,11 +207,13 @@ def snr_proxy(noise_mean: float, noise_std: float, signal_mean: float) -> dict:
 # Plot helpers
 # ----------------------------
 def plot_activity(t: np.ndarray, y: np.ndarray, onset_s: Optional[float], peak_times_s: np.ndarray, title: str):
+    # Plot the full activity trace first.
     plt.plot(t, y)
     plt.xlabel("Time (s)")
     plt.ylabel("Event count per bin")
     plt.title(title)
 
+    # Overlay the detected onset and peak locations for quick visual checking.
     if onset_s is not None:
         plt.axvline(onset_s, linestyle="--")
     for pt in peak_times_s[:200]:  # avoid drawing a million lines
@@ -261,6 +264,7 @@ def main():
     if onset_s is None:
         t_use, y_use = t_bins, counts
     else:
+        # Once onset is known, ignore the earlier low-activity region for peak finding.
         mask = t_bins >= onset_s
         t_use, y_use = t_bins[mask], counts[mask]
 
@@ -294,6 +298,7 @@ def main():
         out_dir = os.path.join(repo_root, "data")
         os.makedirs(out_dir, exist_ok=True)
         out_csv = os.path.join(out_dir, args.out)
+        # Save one row with the headline metrics from this run.
         header = [
             "raw_file", "total_events", "bin_ms", "onset_s",
             "noise_mean", "noise_std", "signal_mean", "signal_std",

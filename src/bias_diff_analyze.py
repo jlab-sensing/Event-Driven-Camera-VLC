@@ -24,6 +24,7 @@ def load_timestamps_us(raw_path: str) -> np.ndarray:
     events = EventsIterator(input_path=raw_path)
     chunks = []
     for evs in events:
+        # Append each iterator chunk, then combine them into one timestamp array.
         chunks.append(evs["t"])
     return np.concatenate(chunks).astype(np.int64) if chunks else np.array([], dtype=np.int64)
 
@@ -215,6 +216,7 @@ def analyze_one_file(
     bits_true: Optional[np.ndarray],
     ber_start_time_s: float,
 ) -> FileMetrics:
+    # Start from the raw event timestamps for this one capture.
     ts_us = load_timestamps_us(raw_path)
     total_events = int(ts_us.size)
 
@@ -237,6 +239,7 @@ def analyze_one_file(
     duration_s = float(time_s.max() - time_s.min())
     events_per_s = float(total_events / duration_s) if duration_s > 0 else float("nan")
 
+    # Turn the event stream into a simple count-vs-time signal.
     t_bins, counts = binned_activity(time_s, bin_ms / 1000.0)
 
     # Peak threshold: median + k * robust sigma (MAD) is usually better than mean/std
@@ -251,6 +254,7 @@ def analyze_one_file(
         min_distance_s=min_peak_dist_ms / 1000.0
     )
 
+    # Extract timing metrics from the detected peaks.
     fj = estimate_freq_period_jitter(peak_times_s)
     edge_jit = edge_residual_jitter_us(peak_times_s)
 
@@ -320,6 +324,7 @@ def main():
     if not os.path.isdir(args.input_dir):
         raise FileNotFoundError(args.input_dir)
 
+    # If provided, this CSV overrides filename parsing for the bias value.
     mapping = load_map_csv(args.map_csv) if args.map_csv else {}
 
     # Load truth bits if BER enabled
@@ -339,6 +344,7 @@ def main():
     for rp in raw_files:
         base = os.path.basename(rp)
 
+        # Prefer the explicit map first, then fall back to the filename regex.
         bd = mapping.get(base)
         if bd is None:
             bd = extract_bias_from_name(base, args.bias_regex)
@@ -403,6 +409,7 @@ def main():
         os.makedirs(plot_dir, exist_ok=True)
         plot_prefix = args.plot_prefix.strip() if args.plot_prefix else os.path.splitext(out_name)[0]
 
+        # Convert the per-file dataclass rows into numeric arrays for plotting.
         bd = np.array([r.bias_diff for r in rows], dtype=float)
         ber_arr = np.array([r.ber for r in rows], dtype=float)
         jit = np.array([r.edge_jitter_us for r in rows], dtype=float)

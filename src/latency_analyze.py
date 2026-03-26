@@ -11,6 +11,9 @@ from metavision_core.event_io import EventsIterator
 from io_utils import repo_root_from_this_file
 
 
+# ----------------------------
+# Load timestamps
+# ----------------------------
 def load_timestamps_us(raw_path: str) -> np.ndarray:
     """Load all event timestamps (microseconds) from a Metavision .raw file."""
     events = EventsIterator(input_path=raw_path)
@@ -29,7 +32,11 @@ def load_timestamps_us(raw_path: str) -> np.ndarray:
     return ts_us
 
 
+# ----------------------------
+# Load toggle times
+# ----------------------------
 def parse_float_tokens(text: str) -> np.ndarray:
+    # Accept commas or whitespace so simple copied lists are easy to use.
     toks = re.split(r"[,\s]+", text.strip())
     vals = [float(t) for t in toks if t]
     arr = np.array(vals, dtype=np.float64)
@@ -56,6 +63,7 @@ def load_toggle_times_csv(path: str) -> Dict[str, np.ndarray]:
         if not has_toggle or (not has_trial and not has_raw):
             raise ValueError("Toggle CSV must contain toggle_s and trial or raw_file columns.")
 
+        # Allow the CSV to key rows either by trial label or raw filename.
         key_col = "trial" if has_trial else "raw_file"
         for row in r:
             key = row.get(key_col, "").strip()
@@ -75,9 +83,13 @@ def build_toggle_schedule(first_toggle_s: float, pulse_period_s: float, num_puls
         raise ValueError("num_pulses must be > 0")
     if pulse_period_s <= 0:
         raise ValueError("pulse_period_s must be > 0")
+    # Build an evenly spaced schedule when explicit toggle timestamps are not available.
     return first_toggle_s + np.arange(num_pulses, dtype=np.float64) * pulse_period_s
 
 
+# ----------------------------
+# Compute latencies
+# ----------------------------
 def compute_latencies_us(
     ts_rel_s: np.ndarray,
     toggle_s: np.ndarray,
@@ -94,6 +106,7 @@ def compute_latencies_us(
     if ts_rel_s.size == 0 or toggle_s.size == 0:
         return first_event_s, latency_us, detected
 
+    # For each toggle, find the first event at or after that time.
     idx = np.searchsorted(ts_rel_s, toggle_s, side="left")
     for i, j in enumerate(idx):
         if j >= ts_rel_s.size:
@@ -109,6 +122,7 @@ def compute_latencies_us(
 
 
 def iqr_outlier_mask(values: np.ndarray) -> np.ndarray:
+    # Flag unusually large or small finite values using the standard 1.5*IQR rule.
     out = np.zeros(values.shape, dtype=bool)
     finite_idx = np.where(np.isfinite(values))[0]
     if finite_idx.size < 4:
@@ -129,6 +143,7 @@ def iqr_outlier_mask(values: np.ndarray) -> np.ndarray:
 
 
 def summarize_latency(latency_us: np.ndarray, detected: np.ndarray, iqr_outliers: np.ndarray) -> Dict[str, float]:
+    # Summarize only the latencies that actually landed within the detection window.
     valid = latency_us[np.isfinite(latency_us)]
     n_toggles = int(latency_us.size)
     n_detected = int(np.sum(detected))
@@ -165,6 +180,7 @@ def summarize_latency(latency_us: np.ndarray, detected: np.ndarray, iqr_outliers
 
 
 def mark_outlier_trials_by_mean(summary_rows: List[Dict[str, float]]) -> Dict[str, float]:
+    # Compare per-trial mean latency using a modified z-score based on median/MAD.
     trial_rows = [r for r in summary_rows if r["trial"] != "OVERALL" and np.isfinite(r["latency_mean_us"])]
     flags: Dict[str, float] = {r["trial"]: 0.0 for r in summary_rows if r["trial"] != "OVERALL"}
     zmap: Dict[str, float] = {r["trial"]: float("nan") for r in summary_rows if r["trial"] != "OVERALL"}
@@ -191,6 +207,9 @@ def mark_outlier_trials_by_mean(summary_rows: List[Dict[str, float]]) -> Dict[st
     return zmap
 
 
+# ----------------------------
+# Format labels for plots
+# ----------------------------
 def wrap_label_on_underscores(label: str, max_line_len: int = 16) -> str:
     """Wrap long labels at underscores so x-tick text stays readable."""
     parts = label.split("_")
@@ -236,6 +255,7 @@ def format_trial_label_for_plot(label: str) -> str:
     pulse_width_token = infer_pulse_width_token(label)
     trial_suffix = infer_trial_suffix(label)
     if pulse_width_token:
+        # Prefer a compact pulse-width label when the filename encodes one.
         base = f"{pulse_width_token}ms"
         return f"{base}\n{trial_suffix}" if trial_suffix else base
     return wrap_label_on_underscores(label, max_line_len=12)
@@ -253,6 +273,9 @@ def finite_std(values: np.ndarray) -> float:
     return float(np.std(values))
 
 
+# ----------------------------
+# Group trials by pulse width
+# ----------------------------
 def build_pulse_width_summary(
     summary_rows: List[Dict[str, float]],
     latencies_by_trial: Dict[str, np.ndarray],
@@ -263,6 +286,7 @@ def build_pulse_width_summary(
         if row["trial"] == "OVERALL":
             continue
 
+        # Try the trial label first, then the raw filename, to recover the pulse width.
         pulse_width_token = infer_pulse_width_token(str(row["trial"]))
         if pulse_width_token is None:
             pulse_width_token = infer_pulse_width_token(str(row["raw_file"]))
@@ -274,6 +298,7 @@ def build_pulse_width_summary(
     grouped_rows: List[Dict[str, float]] = []
     for pulse_width_token in sorted(grouped_trials.keys(), key=pulse_width_token_to_ms):
         rows = grouped_trials[pulse_width_token]
+        # Pool all finite latencies from every trial that used the same pulse width.
         pooled_latencies = [
             latencies_by_trial.get(str(row["trial"]), np.array([], dtype=np.float64))
             for row in rows
@@ -321,6 +346,9 @@ def build_pulse_width_summary(
     return grouped_rows
 
 
+# ----------------------------
+# Main
+# ----------------------------
 def main():
     ap = argparse.ArgumentParser(
         description="Compute LED-toggle to first-event latency from one or more .raw trials."
@@ -342,6 +370,7 @@ def main():
     if args.trial_labels and len(args.trial_labels) != len(args.raw_files):
         raise ValueError("--trial_labels length must match --raw_files length")
 
+    # Exactly one toggle-time source should be active.
     methods = 0
     methods += int(args.toggle_times_file is not None)
     methods += int(args.toggle_times_csv is not None)
@@ -362,6 +391,7 @@ def main():
         else [os.path.splitext(os.path.basename(p))[0] for p in args.raw_files]
     )
 
+    # Normalize all raw file paths and make sure they exist.
     raw_files = [os.path.abspath(p) for p in args.raw_files]
     for p in raw_files:
         if not os.path.exists(p):
@@ -369,6 +399,7 @@ def main():
 
     common_toggles = None
     toggles_by_key: Dict[str, np.ndarray] = {}
+    # Load one shared schedule or a trial-specific set of schedules.
     if args.toggle_times_file:
         common_toggles = load_toggle_times_file(args.toggle_times_file)
     elif args.toggle_times_csv:
@@ -390,6 +421,7 @@ def main():
     summary_rows: List[Dict[str, float]] = []
     latencies_by_trial: Dict[str, np.ndarray] = {}
 
+    # First write one row per pulse so later analyses can reuse the detailed timing.
     with open(per_pulse_path, "w", newline="", encoding="utf-8") as fpp:
         w = csv.writer(fpp)
         w.writerow([
@@ -400,6 +432,7 @@ def main():
         for raw_path, trial in zip(raw_files, trial_labels):
             ts_us = load_timestamps_us(raw_path)
             if ts_us.size == 0:
+                # If the file is empty, still emit rows for the requested toggle schedule.
                 toggles = common_toggles if common_toggles is not None else np.array([], dtype=np.float64)
                 if args.toggle_times_csv:
                     base = os.path.basename(raw_path)
@@ -409,6 +442,7 @@ def main():
                 latency_us = np.full(toggles.shape, np.nan, dtype=np.float64)
                 detected = np.zeros(toggles.shape, dtype=bool)
             else:
+                # Re-zero timestamps so they line up with the toggle schedule.
                 ts_rel_s = (ts_us - ts_us[0]).astype(np.float64) * 1e-6
                 if common_toggles is not None:
                     toggles = common_toggles
@@ -431,6 +465,7 @@ def main():
 
             iqr_outliers = iqr_outlier_mask(latency_us)
             for i in range(toggles.size):
+                # Save one per-toggle row whether it was detected or not.
                 w.writerow([
                     trial,
                     os.path.basename(raw_path),
@@ -452,11 +487,13 @@ def main():
             summary_rows.append(stats)
             latencies_by_trial[trial] = latency_us[np.isfinite(latency_us)]
 
+    # Add cross-trial outlier flags after all per-trial summaries exist.
     trial_mean_z = mark_outlier_trials_by_mean(summary_rows)
     for r in summary_rows:
         if r["trial"] != "OVERALL":
             r["trial_mean_modified_z"] = trial_mean_z.get(r["trial"], float("nan"))
 
+    # Build one pooled OVERALL row after the per-trial rows.
     all_lat = np.concatenate([v for v in latencies_by_trial.values() if v.size > 0]) \
         if any(v.size > 0 for v in latencies_by_trial.values()) else np.array([], dtype=np.float64)
     all_iqr_out = iqr_outlier_mask(all_lat)
@@ -495,6 +532,7 @@ def main():
     print("Saved per-pulse CSV:", per_pulse_path)
     print("Saved summary CSV:", summary_path)
 
+    # Build an extra summary that pools trials with the same pulse width.
     pulse_width_summary_rows = build_pulse_width_summary(summary_rows, latencies_by_trial)
     if pulse_width_summary_rows:
         pulse_width_header = [
@@ -516,6 +554,7 @@ def main():
     if not args.no_plot:
         non_empty = [(k, v) for k, v in latencies_by_trial.items() if v.size > 0]
         if non_empty:
+            # Histogram view: compare the latency distributions directly.
             plt.figure()
             for trial, lat in non_empty:
                 plt.hist(lat, bins=40, alpha=0.5, label=trial)
@@ -529,6 +568,7 @@ def main():
             plt.savefig(hist_path, dpi=300)
             print("Saved plot:", hist_path)
 
+            # Boxplot view: compare spread and outliers per trial.
             fig_width = max(12.0, 1.6 * len(non_empty))
             plt.figure(figsize=(fig_width, 7))
             labels = [format_trial_label_for_plot(k) for k, _ in non_empty]

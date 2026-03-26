@@ -11,6 +11,9 @@ from metavision_core.event_io import EventsIterator
 from io_utils import repo_root_from_this_file
 
 
+# ----------------------------
+# Metrics container
+# ----------------------------
 @dataclass
 class LuxMetrics:
     raw_file: str
@@ -30,6 +33,9 @@ class LuxMetrics:
     snr_z: float
 
 
+# ----------------------------
+# Onset + noise helpers
+# ----------------------------
 def detect_onset_time(
     t_rel_s: np.ndarray,
     y: np.ndarray,
@@ -102,6 +108,9 @@ def snr_proxy(noise_mean: float, noise_std: float, signal_mean: float) -> Tuple[
     return ratio, z
 
 
+# ----------------------------
+# Stream and bin events
+# ----------------------------
 def stream_binned_counts(
     raw_path: str,
     bin_ms: float,
@@ -128,12 +137,14 @@ def stream_binned_counts(
             continue
         ts = evs["t"].astype(np.int64)
 
+        # Use the first event as the time origin for the whole capture.
         if t0_us is None:
             t0_us = int(ts[0])
 
         total_events += int(ts.size)
         t_last_us = int(ts[-1])
 
+        # Convert timestamps into bin indices and accumulate counts chunk by chunk.
         idx = ((ts - t0_us) // bin_us).astype(np.int64)
         max_idx = int(idx.max())
         if counts.size <= max_idx:
@@ -150,6 +161,9 @@ def stream_binned_counts(
     return total_events, duration_s, t_rel_s, counts
 
 
+# ----------------------------
+# Analyze one lux condition
+# ----------------------------
 def analyze_one(raw_path: str, label: str, lux: float, bin_ms: float, onset_k_sigma: float) -> LuxMetrics:
     total_events, duration_s, t_rel_s, counts = stream_binned_counts(raw_path=raw_path, bin_ms=bin_ms)
     events_per_s = float(total_events / duration_s) if duration_s > 0 else float("nan")
@@ -173,10 +187,12 @@ def analyze_one(raw_path: str, label: str, lux: float, bin_ms: float, onset_k_si
             snr_z=float("nan"),
         )
 
+    # Detect where the signal turns on, then split pre-onset noise from post-onset signal.
     onset_s = detect_onset_time(t_rel_s, counts, k_sigma=onset_k_sigma)
     seg = split_noise_signal(t_rel_s, counts, onset_s)
     snr_ratio, snr_z = snr_proxy(seg["noise_mean"], seg["noise_std"], seg["signal_mean"])
 
+    # Convert average counts per bin into an event-rate-style quantity.
     bin_s = bin_ms / 1000.0
     noise_rate_per_s = float(seg["noise_mean"] / bin_s) if np.isfinite(seg["noise_mean"]) else float("nan")
     signal_rate_per_s = float(seg["signal_mean"] / bin_s) if np.isfinite(seg["signal_mean"]) else float("nan")
@@ -200,6 +216,9 @@ def analyze_one(raw_path: str, label: str, lux: float, bin_ms: float, onset_k_si
     )
 
 
+# ----------------------------
+# Main
+# ----------------------------
 def main():
     ap = argparse.ArgumentParser(description="Analyze 1000 Hz illumination sweep and plot event rate/SNR vs lux.")
     ap.add_argument("--raw_files", nargs="+", required=True, help="List of .raw files (e.g. low/mid/high lux)")
@@ -224,6 +243,7 @@ def main():
         if not os.path.exists(p):
             raise FileNotFoundError(p)
 
+    # Analyze each lux condition independently, then sort the summaries by lux.
     rows: List[LuxMetrics] = []
     for raw_path, label, lux in zip(raw_files, labels, args.lux_values):
         m = analyze_one(raw_path=raw_path, label=label, lux=lux, bin_ms=args.bin_ms, onset_k_sigma=args.onset_k_sigma)
@@ -246,6 +266,7 @@ def main():
         out_name += ".csv"
     out_path = os.path.join(data_dir, out_name)
 
+    # Save one CSV row per lux condition.
     header = [
         "raw_file", "label", "lux",
         "total_events", "duration_s", "events_per_s",
@@ -273,6 +294,7 @@ def main():
         return
 
     plot_prefix = args.plot_prefix.strip() if args.plot_prefix else os.path.splitext(out_name)[0]
+    # Convert summary rows into arrays for the line plots.
     lux = np.array([r.lux for r in rows], dtype=float)
     ev_rate = np.array([r.events_per_s for r in rows], dtype=float)
     snr_z = np.array([r.snr_z for r in rows], dtype=float)

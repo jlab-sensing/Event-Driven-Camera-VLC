@@ -12,6 +12,9 @@ from io_utils import repo_root_from_this_file
 from latency_analyze import load_timestamps_us
 
 
+# ----------------------------
+# Path + stats helpers
+# ----------------------------
 def workspace_root_from_this_file(this_file: str) -> str:
     return os.path.abspath(os.path.join(repo_root_from_this_file(this_file), ".."))
 
@@ -43,6 +46,9 @@ def iei_cv(values: np.ndarray) -> float:
     return float(np.std(values) / mu)
 
 
+# ----------------------------
+# Load detected pulses
+# ----------------------------
 def load_detected_pulses(per_pulse_csv: str) -> Dict[str, List[dict]]:
     grouped: Dict[str, List[dict]] = {}
     with open(per_pulse_csv, "r", newline="", encoding="utf-8") as f:
@@ -57,6 +63,7 @@ def load_detected_pulses(per_pulse_csv: str) -> Dict[str, List[dict]]:
             raise ValueError(f"Per-pulse CSV is missing required columns: {missing_str}")
 
         for row in reader:
+            # Keep only pulses that were successfully detected in the latency analysis.
             if row["detected_within_window"].strip() != "1":
                 continue
             if not row["first_event_s"].strip():
@@ -75,11 +82,15 @@ def load_detected_pulses(per_pulse_csv: str) -> Dict[str, List[dict]]:
         raise ValueError("No detected pulses were found in the per-pulse CSV.")
 
     for pulses in grouped.values():
+        # Sort by scheduled toggle order so each trial stays in time order.
         pulses.sort(key=lambda item: item["toggle_index"])
 
     return grouped
 
 
+# ----------------------------
+# Summaries
+# ----------------------------
 def flatten_arrays(chunks: Iterable[np.ndarray]) -> np.ndarray:
     non_empty = [chunk for chunk in chunks if chunk.size > 0]
     if not non_empty:
@@ -88,6 +99,7 @@ def flatten_arrays(chunks: Iterable[np.ndarray]) -> np.ndarray:
 
 
 def summarize_rows(rows: List[dict]) -> dict:
+    # Pool all per-window dt samples so one trial can be summarized in one row.
     counts = np.array([row["n_events_in_window"] for row in rows], dtype=np.float64)
     durations = np.array(
         [row["burst_duration_us"] for row in rows if np.isfinite(row["burst_duration_us"])],
@@ -110,6 +122,9 @@ def summarize_rows(rows: List[dict]) -> dict:
     }
 
 
+# ----------------------------
+# Plot helper
+# ----------------------------
 def save_overall_dt_histogram(
     dt_values_us: np.ndarray,
     out_path: str,
@@ -136,6 +151,9 @@ def save_overall_dt_histogram(
     plt.close(fig)
 
 
+# ----------------------------
+# Main
+# ----------------------------
 def main() -> None:
     repo_root = repo_root_from_this_file(__file__)
     workspace_root = workspace_root_from_this_file(__file__)
@@ -198,6 +216,7 @@ def main() -> None:
     if not os.path.isdir(args.captures_dir):
         raise FileNotFoundError(args.captures_dir)
 
+    # Start from the latency script output so we only analyze pulses that were actually detected.
     pulses_by_trial = load_detected_pulses(args.per_pulse_csv)
 
     data_dir = os.path.join(repo_root, "data", "inter_event")
@@ -213,6 +232,7 @@ def main() -> None:
     window_s = args.window_us * 1e-6
 
     for trial, pulses in pulses_by_trial.items():
+        # Match the trial back to its raw capture.
         raw_file = pulses[0]["raw_file"]
         raw_path = os.path.join(args.captures_dir, raw_file)
         if not os.path.exists(raw_path):
@@ -223,13 +243,16 @@ def main() -> None:
         ts_us = load_timestamps_us(raw_path)
         if ts_us.size == 0:
             raise ValueError(f"No events found in {raw_path}")
+        # Re-zero the capture so the anchor times from the latency CSV line up.
         ts_rel_s = (ts_us - ts_us[0]).astype(np.float64) * 1e-6
 
         trial_rows: List[dict] = []
         for pulse in pulses:
+            # Anchor each analysis window either at the scheduled toggle or the first detected event.
             anchor_s = pulse["first_event_s"] if args.anchor == "first_event" else pulse["toggle_s"]
             seg = ts_rel_s[(ts_rel_s >= anchor_s) & (ts_rel_s <= anchor_s + window_s)]
 
+            # Within that short burst window, compute inter-event spacing statistics.
             dt_values_us = np.diff(seg) * 1e6 if seg.size >= 2 else np.array([], dtype=np.float64)
             row = {
                 "trial": trial,
@@ -251,6 +274,7 @@ def main() -> None:
             trial_rows.append(row)
             all_rows.append(row)
 
+        # Collapse the pulse-level rows into one summary row per trial.
         summary = summarize_rows(trial_rows)
         summary.update({
             "trial": trial,
@@ -269,6 +293,7 @@ def main() -> None:
     })
     summary_rows.append(overall)
 
+    # Save the detailed per-pulse measurements first.
     with open(per_pulse_out, "w", newline="", encoding="utf-8") as f:
         fieldnames = [
             "trial",
@@ -292,6 +317,7 @@ def main() -> None:
             out_row = {key: row[key] for key in fieldnames}
             writer.writerow(out_row)
 
+    # Save the condensed per-trial and overall summaries next.
     with open(summary_out, "w", newline="", encoding="utf-8") as f:
         fieldnames = [
             "trial",
@@ -316,6 +342,7 @@ def main() -> None:
 
     overall_dt_values = flatten_arrays([row["dt_values_us"] for row in all_rows])
     if not args.no_plot:
+        # Plot the pooled inter-event distribution across all detected pulses.
         save_overall_dt_histogram(
             dt_values_us=overall_dt_values,
             out_path=hist_out,

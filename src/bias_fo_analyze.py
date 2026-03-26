@@ -20,6 +20,7 @@ DEFAULT_INPUT_DIR = r"C:\Users\rabis\OneDrive\Documents\School\LAB aka 195\captu
 # Load timestamps
 # ----------------------------
 def load_timestamps_us(raw_path: str) -> np.ndarray:
+    # Read timestamps from each chunk and merge them into one array.
     it = EventsIterator(input_path=raw_path)
     chunks = []
     for evs in it:
@@ -41,6 +42,7 @@ def binned_activity(time_s: np.ndarray, bin_width_s: float) -> Tuple[np.ndarray,
 
 
 def robust_threshold(counts: np.ndarray, k: float) -> float:
+    # Use a MAD-based threshold so bursts do not dominate the baseline estimate.
     med = float(np.median(counts))
     mad = float(np.median(np.abs(counts - med))) + 1e-9
     robust_sigma = 1.4826 * mad
@@ -211,6 +213,7 @@ def analyze_one(
     guard_ms: float,
     edges_per_cycle: int = 2,
 ) -> FoMetrics:
+    # Load one capture and summarize it into edge and noise metrics.
     ts_us = load_timestamps_us(raw_path)
     N = int(ts_us.size)
 
@@ -255,6 +258,7 @@ def analyze_one(
             peak_snr=float("nan"),
         )
 
+    # Detect the strongest LED-driven peaks in the binned activity signal.
     thr = robust_threshold(counts, peak_k)
     peak_times = find_peaks_simple(
         t_bins, counts,
@@ -334,6 +338,7 @@ def main():
     rows: List[FoMetrics] = []
     for rp in raw_files:
         base = os.path.basename(rp)
+        # Pull the tested bias value out of the filename before analyzing the capture.
         fo = extract_fo_from_name(base, args.fo_regex)
         if fo is None:
             print(f"Skipping (can't parse bias_fo): {base}")
@@ -395,6 +400,7 @@ def main():
     os.makedirs(plot_dir, exist_ok=True)
     plot_prefix = args.plot_prefix.strip() if args.plot_prefix else os.path.splitext(out_name)[0]
 
+    # Break the summary rows into one numeric array per plotted metric.
     fo = np.array([r.bias_fo for r in rows], dtype=float)
     fwhm = np.array([r.mean_fwhm_ms for r in rows], dtype=float)
     bgm = np.array([r.bg_mean for r in rows], dtype=float)

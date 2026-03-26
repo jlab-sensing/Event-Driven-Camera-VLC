@@ -15,6 +15,9 @@ from io_utils import repo_root_from_this_file
 from latency_analyze import load_timestamps_us
 
 
+# ----------------------------
+# Parse values from filenames and inputs
+# ----------------------------
 def parse_numeric_token(token: str) -> float:
     return float(token.replace("p", "."))
 
@@ -46,6 +49,9 @@ def load_truth_bits(bits_file: Optional[str], bits_literal: Optional[str]) -> np
     return np.array([1 if ch == "1" else 0 for ch in cleaned], dtype=np.uint8)
 
 
+# ----------------------------
+# Load per-file frequency metadata
+# ----------------------------
 def load_frequency_map_csv(path: str) -> Dict[str, float]:
     mapping: Dict[str, float] = {}
     with open(path, "r", newline="", encoding="utf-8") as f:
@@ -82,6 +88,9 @@ def extract_frequency_from_name(filename: str, pattern: str) -> Optional[float]:
         return None
 
 
+# ----------------------------
+# Trim and bin captures
+# ----------------------------
 def trim_and_zero_times(
     ts_rel_s: np.ndarray,
     trim_start_s: float,
@@ -96,6 +105,7 @@ def trim_and_zero_times(
     if window_end_s <= window_start_s:
         return np.array([], dtype=np.float64), 0.0
 
+    # Keep only the requested time window, then shift it back to start at 0 seconds.
     mask = (ts_rel_s >= window_start_s) & (ts_rel_s <= window_end_s)
     trimmed = ts_rel_s[mask] - window_start_s
     duration_s = window_end_s - window_start_s
@@ -106,6 +116,7 @@ def binned_activity(time_s: np.ndarray, bin_width_s: float, duration_s: float) -
     if duration_s <= 0 or bin_width_s <= 0:
         return np.array([], dtype=np.float64), np.array([], dtype=np.float64)
 
+    # Build a fixed set of bins covering the full trimmed capture duration.
     n_bins = max(1, int(np.ceil(duration_s / bin_width_s)))
     edges = np.arange(0.0, (n_bins + 1) * bin_width_s, bin_width_s, dtype=np.float64)
     counts, _ = np.histogram(time_s, bins=edges)
@@ -115,6 +126,7 @@ def binned_activity(time_s: np.ndarray, bin_width_s: float, duration_s: float) -
 def auto_threshold(sym_sums: np.ndarray) -> float:
     if sym_sums.size == 0:
         return float("nan")
+    # Split symbol counts into low/high groups around the median and threshold between them.
     med = float(np.median(sym_sums))
     low = sym_sums[sym_sums <= med]
     high = sym_sums[sym_sums > med]
@@ -133,6 +145,7 @@ def integrate_symbol_counts(
     if symbol_rate_hz <= 0 or duration_s <= start_time_s:
         return np.array([], dtype=np.float64)
 
+    # Count how many full symbols fit after this candidate start phase.
     symbol_period_s = 1.0 / symbol_rate_hz
     n_symbols = int(np.floor((duration_s - start_time_s) / symbol_period_s))
     if n_symbols <= 0:
@@ -144,6 +157,7 @@ def integrate_symbol_counts(
 
     left_idx = np.searchsorted(t_bins, symbol_starts, side="left")
     right_idx = np.searchsorted(t_bins, symbol_ends, side="left")
+    # Use the cumulative sum so each symbol window can be integrated quickly.
     return cumulative[right_idx] - cumulative[left_idx]
 
 
@@ -151,6 +165,9 @@ def bits_to_string(bits: np.ndarray) -> str:
     return "".join("1" if int(bit) else "0" for bit in bits.tolist())
 
 
+# ----------------------------
+# Score candidate decodes
+# ----------------------------
 def compare_candidates(current: Optional["CandidateResult"], challenger: "CandidateResult") -> bool:
     if current is None:
         return True
@@ -206,6 +223,7 @@ def score_symbol_stream(
     best: Optional[CandidateResult] = None
 
     for offset in range(message_len):
+        # Drop the partial prefix so the remaining bitstream can be reshaped into full messages.
         drop = (message_len - offset) % message_len
         usable = decoded_bits[drop:]
         n_messages = int(usable.size // message_len)
@@ -213,6 +231,7 @@ def score_symbol_stream(
             continue
 
         usable = usable[: n_messages * message_len]
+        # Compare the repeated decoded message stream against the repeated truth message.
         truth_repeated = np.tile(truth_message_bits, n_messages)
         n_bit_errors = int(np.sum(usable != truth_repeated))
         ber = float(n_bit_errors / usable.size) if usable.size > 0 else float("nan")
@@ -259,6 +278,7 @@ def search_best_decode(
     symbol_period_s = 1.0 / symbol_rate_hz
     phases = np.linspace(0.0, symbol_period_s, phase_steps, endpoint=False)
 
+    # Try several possible symbol start phases because the capture may not start on a symbol boundary.
     best: Optional[CandidateResult] = None
     for phase_s in phases:
         sym_sums = integrate_symbol_counts(
@@ -279,6 +299,9 @@ def search_best_decode(
     return best
 
 
+# ----------------------------
+# Save summary results
+# ----------------------------
 @dataclass
 class FileResult:
     trial: str
@@ -311,6 +334,7 @@ def aggregate_by_frequency(rows: List[FileResult]) -> List[dict]:
     out: List[dict] = []
     for freq in sorted(grouped.keys()):
         trials = grouped[freq]
+        # Pool trials at the same frequency so one summary row represents that setting.
         mar_values = np.array([row.mar for row in trials if np.isfinite(row.mar)], dtype=np.float64)
         ber_values = np.array([row.ber for row in trials if np.isfinite(row.ber)], dtype=np.float64)
         total_messages = int(sum(row.n_messages for row in trials))
@@ -381,6 +405,9 @@ def save_ber_plot(rows: List[dict], out_path: str) -> None:
     plt.close(fig)
 
 
+# ----------------------------
+# Main
+# ----------------------------
 def main() -> None:
     root = repo_root_from_this_file(__file__)
     default_input_dir = os.path.abspath(os.path.join(root, "..", "captures", "experiment_replication_3_1"))
@@ -471,10 +498,12 @@ def main() -> None:
     if not os.path.isdir(args.input_dir):
         raise FileNotFoundError(args.input_dir)
 
+    # Discover all raw captures that belong to this frequency sweep.
     raw_files = list_raw_files(args.input_dir)
     if not raw_files:
         raise RuntimeError(f"No .raw files found in {args.input_dir}")
 
+    # Optional CSV mapping can override whatever frequency is encoded in the filename.
     freq_mapping = load_frequency_map_csv(args.freq_map_csv) if args.freq_map_csv else {}
 
     data_dir = os.path.join(root, "data", "replication")
@@ -496,6 +525,7 @@ def main() -> None:
         raw_file = os.path.basename(raw_path)
         trial = os.path.splitext(raw_file)[0]
 
+        # Determine the tested beacon frequency for this file.
         frequency_hz = freq_mapping.get(raw_file)
         if frequency_hz is None:
             frequency_hz = extract_frequency_from_name(raw_file, args.freq_regex)
@@ -505,12 +535,14 @@ def main() -> None:
             )
 
         symbol_rate_hz = float(frequency_hz * args.symbol_rate_scale)
+        # Load and re-zero the event timestamps for decoding.
         ts_us = load_timestamps_us(raw_path)
         total_events = int(ts_us.size)
         if total_events < 2:
             raise RuntimeError(f"Not enough events in {raw_file} to decode.")
 
         ts_rel_s = (ts_us - ts_us[0]).astype(np.float64) * 1e-6
+        # Optionally trim off unstable capture edges before decoding.
         trimmed_times_s, duration_s = trim_and_zero_times(
             ts_rel_s=ts_rel_s,
             trim_start_s=args.trim_start_s,
@@ -520,6 +552,7 @@ def main() -> None:
             raise RuntimeError(f"Trimmed capture for {raw_file} is empty. Adjust trim settings.")
 
         events_per_s = float(trimmed_times_s.size / duration_s) if duration_s > 0 else float("nan")
+        # Bin the event stream so symbol windows can be integrated efficiently.
         t_bins, counts = binned_activity(
             time_s=trimmed_times_s,
             bin_width_s=args.bin_us * 1e-6,
@@ -539,6 +572,7 @@ def main() -> None:
                 f"Could not decode any complete messages from {raw_file}. Try smaller --bin_us, more --phase_steps, or trims."
             )
 
+        # Save the best decode summary for this one capture.
         result = FileResult(
             trial=trial,
             raw_file=raw_file,
@@ -565,6 +599,7 @@ def main() -> None:
 
         if best.n_messages > 0:
             message_len = int(truth_message_bits.size)
+            # Also save each repeated message instance for later manual inspection.
             decoded_messages = best.decoded_bits.reshape(best.n_messages, message_len)
             truth_bits_str = bits_to_string(truth_message_bits)
             for idx, decoded_message in enumerate(decoded_messages):
@@ -589,8 +624,10 @@ def main() -> None:
         )
 
     results.sort(key=lambda row: (row.frequency_hz, row.trial))
+    # Collapse the trial-level rows into one by-frequency summary table.
     freq_rows = aggregate_by_frequency(results)
 
+    # Save the per-file decode summary.
     with open(file_summary_path, "w", newline="", encoding="utf-8") as f:
         fieldnames = [
             "trial",
@@ -619,6 +656,7 @@ def main() -> None:
         for row in results:
             writer.writerow(row.__dict__)
 
+    # Save the pooled per-frequency summary.
     with open(freq_summary_path, "w", newline="", encoding="utf-8") as f:
         fieldnames = [
             "frequency_hz",
@@ -639,6 +677,7 @@ def main() -> None:
         for row in freq_rows:
             writer.writerow(row)
 
+    # Save every decoded repeated message for manual spot-checking.
     with open(per_message_path, "w", newline="", encoding="utf-8") as f:
         fieldnames = [
             "trial",
@@ -659,6 +698,7 @@ def main() -> None:
     print("Saved per-message CSV:", per_message_path)
 
     if not args.no_plot:
+        # Plot pooled MAR and BER trends versus frequency.
         save_mar_plot(freq_rows, mar_plot_path)
         save_ber_plot(freq_rows, ber_plot_path)
         print("Saved plot:", mar_plot_path)

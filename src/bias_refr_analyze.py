@@ -32,6 +32,7 @@ def load_event_fields(raw_path: str) -> Tuple[np.ndarray, np.ndarray]:
     for evs in it:
         if evs.size == 0:
             continue
+        # Keep timestamps and polarity aligned chunk by chunk.
         ts_chunks.append(evs["t"].astype(np.int64))
         if "p" in evs.dtype.names:
             p_chunks.append(evs["p"].astype(np.uint8))
@@ -206,6 +207,7 @@ def analyze_one_file(
     edges_per_cycle: int,
     max_iei_events: int,
 ) -> RefrMetrics:
+    # Load both timestamps and polarity so the analysis can report ON-event fraction too.
     t_us, p = load_event_fields(raw_path)
     total_events = int(t_us.size)
 
@@ -231,6 +233,7 @@ def analyze_one_file(
     duration_s = float(time_s.max() - time_s.min())
     events_per_s = float(total_events / duration_s) if duration_s > 0 else float("nan")
 
+    # This tells you whether the capture is dominated by ON or OFF events.
     on_frac = float(np.mean(p > 0)) if p.size == total_events else float("nan")
 
     # clustering metrics on binned counts
@@ -324,6 +327,7 @@ def main():
     rows: List[RefrMetrics] = []
     for rp in raw_files:
         base = os.path.basename(rp)
+        # Each file should encode the tested refractory bias in its name.
         refr = extract_refr_from_name(base, args.refr_regex)
         if refr is None:
             print(f"Skipping (can't parse bias_refr): {base}")
@@ -385,6 +389,7 @@ def main():
     os.makedirs(plot_dir, exist_ok=True)
     plot_prefix = args.plot_prefix.strip() if args.plot_prefix else os.path.splitext(out_name)[0]
 
+    # Pull each summary metric into a plain array for plotting against bias_refr.
     refr = np.array([r.bias_refr for r in rows], dtype=float)
     missed = np.array([r.missed_edge_frac for r in rows], dtype=float)
     fano = np.array([r.fano for r in rows], dtype=float)
