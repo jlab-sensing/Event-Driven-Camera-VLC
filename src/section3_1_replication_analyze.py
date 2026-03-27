@@ -52,6 +52,18 @@ def load_truth_bits(bits_file: Optional[str], bits_literal: Optional[str]) -> np
 # ----------------------------
 # Load per-file frequency metadata
 # ----------------------------
+@dataclass
+class ManifestEntry:
+    requested_frequency_hz: float
+    actual_frequency_hz: float
+    symbols_per_bit: int
+    message_repeats: int
+    guard_bits: int
+    total_symbols: int
+    duration_s: float
+    output_file: str
+
+
 def load_frequency_map_csv(path: str) -> Dict[str, float]:
     mapping: Dict[str, float] = {}
     with open(path, "r", newline="", encoding="utf-8") as f:
@@ -78,6 +90,47 @@ def load_frequency_map_csv(path: str) -> Dict[str, float]:
     return mapping
 
 
+def load_transmission_manifest(path: str) -> Dict[float, ManifestEntry]:
+    manifest: Dict[float, ManifestEntry] = {}
+    with open(path, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None:
+            raise ValueError("Manifest CSV is missing a header row.")
+
+        required = {
+            "requested_frequency_hz",
+            "actual_frequency_hz",
+            "symbols_per_bit",
+            "message_repeats",
+            "guard_bits",
+            "total_symbols",
+            "duration_s",
+            "output_file",
+        }
+        missing = sorted(required - set(reader.fieldnames))
+        if missing:
+            raise ValueError(f"Manifest CSV is missing columns: {', '.join(missing)}")
+
+        for row in reader:
+            requested_frequency_hz = float(row["requested_frequency_hz"])
+            manifest[round(requested_frequency_hz, 6)] = ManifestEntry(
+                requested_frequency_hz=requested_frequency_hz,
+                actual_frequency_hz=float(row["actual_frequency_hz"]),
+                symbols_per_bit=int(row["symbols_per_bit"]),
+                message_repeats=int(row["message_repeats"]),
+                guard_bits=int(row["guard_bits"]),
+                total_symbols=int(row["total_symbols"]),
+                duration_s=float(row["duration_s"]),
+                output_file=row["output_file"].strip(),
+            )
+
+    return manifest
+
+
+def lookup_manifest_entry(manifest: Dict[float, ManifestEntry], requested_frequency_hz: float) -> Optional[ManifestEntry]:
+    return manifest.get(round(float(requested_frequency_hz), 6))
+
+
 def extract_frequency_from_name(filename: str, pattern: str) -> Optional[float]:
     match = re.search(pattern, filename)
     if not match:
@@ -91,6 +144,26 @@ def extract_frequency_from_name(filename: str, pattern: str) -> Optional[float]:
 # ----------------------------
 # Trim and bin captures
 # ----------------------------
+def window_and_zero_times(
+    ts_rel_s: np.ndarray,
+    window_start_s: float,
+    window_end_s: float,
+) -> tuple[np.ndarray, float]:
+    if ts_rel_s.size == 0:
+        return np.array([], dtype=np.float64), 0.0
+
+    capture_end_s = float(ts_rel_s.max())
+    bounded_start_s = float(min(max(0.0, window_start_s), capture_end_s))
+    bounded_end_s = float(min(max(0.0, window_end_s), capture_end_s))
+    if bounded_end_s <= bounded_start_s:
+        return np.array([], dtype=np.float64), 0.0
+
+    mask = (ts_rel_s >= bounded_start_s) & (ts_rel_s <= bounded_end_s)
+    trimmed = ts_rel_s[mask] - bounded_start_s
+    duration_s = bounded_end_s - bounded_start_s
+    return trimmed, float(duration_s)
+
+
 def trim_and_zero_times(
     ts_rel_s: np.ndarray,
     trim_start_s: float,
@@ -110,6 +183,61 @@ def trim_and_zero_times(
     trimmed = ts_rel_s[mask] - window_start_s
     duration_s = window_end_s - window_start_s
     return trimmed, float(duration_s)
+
+
+def find_peak_activity_window(
+    ts_rel_s: np.ndarray,
+    window_duration_s: float,
+    bin_width_s: float,
+) -> tuple[float, float]:
+    if ts_rel_s.size == 0:
+        return 0.0, 0.0
+    if window_duration_s <= 0.0:
+        return 0.0, float(ts_rel_s.max())
+    if bin_width_s <= 0.0:
+        raise ValueError("bin_width_s must be > 0")
+
+    capture_end_s = float(ts_rel_s.max())
+    if capture_end_s <= window_duration_s:
+        return 0.0, capture_end_s
+
+    n_bins = max(1, int(np.ceil(capture_end_s / bin_width_s)))
+    edges = np.arange(0.0, (n_bins + 1) * bin_width_s, bin_width_s, dtype=np.float64)
+    counts, _ = np.histogram(ts_rel_s, bins=edges)
+    window_bins = max(1, int(np.ceil(window_duration_s / bin_width_s)))
+    if window_bins >= counts.size:
+        return 0.0, capture_end_s
+
+    cumulative = np.concatenate(([0], np.cumsum(counts.astype(np.int64))))
+    rolling = cumulative[window_bins:] - cumulative[:-window_bins]
+    best_idx = int(np.argmax(rolling))
+    start_s = float(edges[best_idx])
+    end_s = float(min(capture_end_s, start_s + window_bins * bin_width_s))
+    return start_s, end_s
+
+
+def find_manifest_analysis_window(
+    ts_rel_s: np.ndarray,
+    manifest_entry: ManifestEntry,
+    message_len_bits: int,
+    search_bin_s: float,
+) -> tuple[float, float]:
+    actual_frequency_hz = float(manifest_entry.actual_frequency_hz)
+    if actual_frequency_hz <= 0.0:
+        raise ValueError("Manifest actual_frequency_hz must be > 0")
+
+    payload_duration_s = float((manifest_entry.message_repeats * message_len_bits) / actual_frequency_hz)
+    guard_duration_s = float(manifest_entry.guard_bits / actual_frequency_hz)
+    payload_start_s, payload_end_s = find_peak_activity_window(
+        ts_rel_s=ts_rel_s,
+        window_duration_s=payload_duration_s,
+        bin_width_s=search_bin_s,
+    )
+
+    capture_end_s = float(ts_rel_s.max()) if ts_rel_s.size > 0 else 0.0
+    analysis_start_s = max(0.0, payload_start_s - guard_duration_s)
+    analysis_end_s = min(capture_end_s, payload_end_s + guard_duration_s)
+    return float(analysis_start_s), float(analysis_end_s)
 
 
 def binned_activity(time_s: np.ndarray, bin_width_s: float, duration_s: float) -> tuple[np.ndarray, np.ndarray]:
@@ -308,12 +436,17 @@ class FileResult:
     raw_file: str
     frequency_hz: float
     symbol_rate_hz: float
+    capture_duration_s: float
     duration_s: float
     total_events: int
     events_per_s: float
     bin_us: float
+    analysis_start_s: float
+    analysis_end_s: float
     trim_start_s: float
     trim_end_s: float
+    expected_transmit_duration_s: float
+    active_window_source: str
     phase_s: float
     threshold: float
     message_offset_bits: int
@@ -411,6 +544,7 @@ def save_ber_plot(rows: List[dict], out_path: str) -> None:
 def main() -> None:
     root = repo_root_from_this_file(__file__)
     default_input_dir = os.path.abspath(os.path.join(root, "..", "captures", "experiment_replication_3_1"))
+    default_manifest_csv = os.path.join(root, "pru1_pwm_CSK_1000Hz", "userspace", "s31_replication_manifest.csv")
 
     ap = argparse.ArgumentParser(
         description="Analyze the Section 3.1 frequency-sweep replication experiment and compute MAR/BER."
@@ -436,6 +570,16 @@ def main() -> None:
         help="Optional CSV mapping raw_file to frequency_hz.",
     )
     ap.add_argument(
+        "--manifest_csv",
+        default=default_manifest_csv,
+        help="Optional symbol manifest CSV used to recover actual transmit frequency/duration per sweep setting.",
+    )
+    ap.add_argument(
+        "--no_manifest_window",
+        action="store_true",
+        help="Disable manifest-based active-window detection and decode the full manual-trimmed capture instead.",
+    )
+    ap.add_argument(
         "--freq_regex",
         default=r"([0-9]+(?:p[0-9]+|\.[0-9]+)?)Hz",
         help="Regex with one capture group for extracting frequency from filenames.",
@@ -459,16 +603,22 @@ def main() -> None:
         help="How many start-phase candidates to test within one symbol period.",
     )
     ap.add_argument(
+        "--window_search_bin_us",
+        type=float,
+        default=250.0,
+        help="Bin width in microseconds when searching for the active transmit window inside each capture.",
+    )
+    ap.add_argument(
         "--trim_start_s",
         type=float,
         default=0.0,
-        help="Ignore this many seconds at the start of each capture before decoding.",
+        help="Additional trim applied at the start of the selected analysis window before decoding.",
     )
     ap.add_argument(
         "--trim_end_s",
         type=float,
         default=0.0,
-        help="Ignore this many seconds at the end of each capture before decoding.",
+        help="Additional trim applied at the end of the selected analysis window before decoding.",
     )
     ap.add_argument(
         "--out_prefix",
@@ -488,6 +638,8 @@ def main() -> None:
         raise ValueError("--bin_us must be > 0")
     if args.phase_steps <= 0:
         raise ValueError("--phase_steps must be > 0")
+    if args.window_search_bin_us <= 0:
+        raise ValueError("--window_search_bin_us must be > 0")
     if args.trim_start_s < 0 or args.trim_end_s < 0:
         raise ValueError("--trim_start_s and --trim_end_s must be >= 0")
 
@@ -505,6 +657,11 @@ def main() -> None:
 
     # Optional CSV mapping can override whatever frequency is encoded in the filename.
     freq_mapping = load_frequency_map_csv(args.freq_map_csv) if args.freq_map_csv else {}
+    manifest = (
+        load_transmission_manifest(args.manifest_csv)
+        if args.manifest_csv and os.path.exists(args.manifest_csv) and not args.no_manifest_window
+        else {}
+    )
 
     data_dir = os.path.join(root, "data", "replication")
     plot_dir = os.path.join(root, "plots", "replication")
@@ -534,7 +691,12 @@ def main() -> None:
                 f"Could not determine frequency for {raw_file}. Update the filename, --freq_regex, or --freq_map_csv."
             )
 
-        symbol_rate_hz = float(frequency_hz * args.symbol_rate_scale)
+        manifest_entry = lookup_manifest_entry(manifest, float(frequency_hz))
+        symbol_rate_hz = (
+            float(manifest_entry.actual_frequency_hz)
+            if manifest_entry is not None
+            else float(frequency_hz * args.symbol_rate_scale)
+        )
         # Load and re-zero the event timestamps for decoding.
         ts_us = load_timestamps_us(raw_path)
         total_events = int(ts_us.size)
@@ -542,14 +704,33 @@ def main() -> None:
             raise RuntimeError(f"Not enough events in {raw_file} to decode.")
 
         ts_rel_s = (ts_us - ts_us[0]).astype(np.float64) * 1e-6
-        # Optionally trim off unstable capture edges before decoding.
-        trimmed_times_s, duration_s = trim_and_zero_times(
+        capture_duration_s = float(ts_rel_s.max())
+        if manifest_entry is not None:
+            auto_window_start_s, auto_window_end_s = find_manifest_analysis_window(
+                ts_rel_s=ts_rel_s,
+                manifest_entry=manifest_entry,
+                message_len_bits=int(truth_message_bits.size),
+                search_bin_s=args.window_search_bin_us * 1e-6,
+            )
+            analysis_start_s = auto_window_start_s + args.trim_start_s
+            analysis_end_s = auto_window_end_s - args.trim_end_s
+            expected_transmit_duration_s = float(manifest_entry.duration_s)
+            active_window_source = "manifest_peak_window"
+        else:
+            analysis_start_s = float(max(0.0, args.trim_start_s))
+            analysis_end_s = float(capture_duration_s - max(0.0, args.trim_end_s))
+            expected_transmit_duration_s = float("nan")
+            active_window_source = "manual_trim"
+
+        trimmed_times_s, duration_s = window_and_zero_times(
             ts_rel_s=ts_rel_s,
-            trim_start_s=args.trim_start_s,
-            trim_end_s=args.trim_end_s,
+            window_start_s=analysis_start_s,
+            window_end_s=analysis_end_s,
         )
         if duration_s <= 0 or trimmed_times_s.size < 2:
-            raise RuntimeError(f"Trimmed capture for {raw_file} is empty. Adjust trim settings.")
+            raise RuntimeError(
+                f"Analysis window for {raw_file} is empty. Adjust trim settings or disable manifest windowing."
+            )
 
         events_per_s = float(trimmed_times_s.size / duration_s) if duration_s > 0 else float("nan")
         # Bin the event stream so symbol windows can be integrated efficiently.
@@ -578,12 +759,17 @@ def main() -> None:
             raw_file=raw_file,
             frequency_hz=float(frequency_hz),
             symbol_rate_hz=symbol_rate_hz,
+            capture_duration_s=capture_duration_s,
             duration_s=float(duration_s),
             total_events=total_events,
             events_per_s=events_per_s,
             bin_us=float(args.bin_us),
+            analysis_start_s=float(analysis_start_s),
+            analysis_end_s=float(analysis_end_s),
             trim_start_s=float(args.trim_start_s),
             trim_end_s=float(args.trim_end_s),
+            expected_transmit_duration_s=expected_transmit_duration_s,
+            active_window_source=active_window_source,
             phase_s=float(best.phase_s),
             threshold=float(best.threshold),
             message_offset_bits=int(best.message_offset_bits),
@@ -618,6 +804,7 @@ def main() -> None:
         print(
             f"Done: {raw_file} "
             f"freq={frequency_hz:.1f}Hz "
+            f"window={analysis_start_s:.3f}-{analysis_end_s:.3f}s "
             f"messages={best.n_messages} "
             f"MAR={best.mar:.3f} "
             f"BER={best.ber:.4f}"
@@ -634,12 +821,17 @@ def main() -> None:
             "raw_file",
             "frequency_hz",
             "symbol_rate_hz",
+            "capture_duration_s",
             "duration_s",
             "total_events",
             "events_per_s",
             "bin_us",
+            "analysis_start_s",
+            "analysis_end_s",
             "trim_start_s",
             "trim_end_s",
+            "expected_transmit_duration_s",
+            "active_window_source",
             "phase_s",
             "threshold",
             "message_offset_bits",
