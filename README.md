@@ -1,5 +1,5 @@
 # Event-Driven-Camera-VLC
-Thesis work on VLC with event driven cameras 
+Thesis work on visible light communication with event driven cameras 
 
 If working on this project with a completely new device, or in the case that everything is deleted and you need to correctly clone all your work, do this:
 1. Make a folder called Lab aka 195 (can be named any name) and clone your repo Event-Driven-Camera-VLC inside of that folder 
