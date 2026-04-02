@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ECE 195 Winter Quarter Writeup Revision</title>
+  <style>
+    :root {
+      --ink: #1f2933;
+      --muted: #52606d;
+      --border: #d9e2ec;
+      --accent: #0b6e4f;
+      --paper: #ffffff;
+      --wash: #f7fafc;
+    }
+
+    @page {
+      margin: 0.65in;
+      size: letter;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--wash);
+      color: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      line-height: 1.45;
+    }
+
+    main {
+      max-width: 8.2in;
+      margin: 0 auto;
+      padding: 0.45in 0.4in 0.7in;
+      background: var(--paper);
+    }
+
+    h1, h2, h3 {
+      margin: 0 0 0.35rem;
+      line-height: 1.15;
+    }
+
+    h1 {
+      font-size: 1.9rem;
+      letter-spacing: -0.02em;
+    }
+
+    h2 {
+      margin-top: 1.3rem;
+      font-size: 1.15rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.18rem;
+    }
+
+    h3 {
+      margin-top: 1rem;
+      font-size: 1rem;
+    }
+
+    p {
+      margin: 0.55rem 0;
+      font-size: 0.99rem;
+      text-align: justify;
+    }
+
+    .lede {
+      color: var(--muted);
+      font-size: 0.97rem;
+      margin-top: 0.35rem;
+    }
+
+    .callout {
+      margin: 0.9rem 0 1.1rem;
+      padding: 0.65rem 0.8rem;
+      background: #f0fdf4;
+      border: 1px solid #b7ebc6;
+      border-left: 5px solid var(--accent);
+      font-size: 0.95rem;
+    }
+
+    figure {
+      margin: 0.9rem 0 1rem;
+      page-break-inside: avoid;
+    }
+
+    img {
+      display: block;
+      width: 100%;
+      border: 1px solid var(--border);
+    }
+
+    figcaption {
+      margin-top: 0.32rem;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.85rem 0 1rem;
+      page-break-inside: avoid;
+      font-size: 0.9rem;
+    }
+
+    caption {
+      caption-side: top;
+      text-align: left;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+    }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.34rem 0.4rem;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f8fafc;
+      text-align: left;
+    }
+
+    .tight td, .tight th {
+      padding: 0.26rem 0.34rem;
+      font-size: 0.84rem;
+    }
+
+    .small-note {
+      color: var(--muted);
+      font-size: 0.84rem;
+      margin-top: -0.55rem;
+      margin-bottom: 0.9rem;
+    }
+
+    .commit-log {
+      margin: 0.55rem 0 0;
+      padding-left: 1.2rem;
+      font-size: 0.86rem;
+    }
+
+    .commit-log li {
+      margin: 0.22rem 0;
+    }
+
+    .month {
+      margin-top: 0.85rem;
+      font-size: 0.92rem;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    a {
+      color: #0f4c81;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    ul {
+      margin: 0.55rem 0 0.55rem 1.2rem;
+      padding: 0;
+    }
+
+    li {
+      margin: 0.28rem 0;
+    }
+
+    .footer {
+      margin-top: 1.35rem;
+      font-size: 0.83rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      padding-top: 0.45rem;
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      main {
+        max-width: none;
+        padding: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>ECE 195 Winter Quarter Writeup</h1>
+      
+    </header>
+
+    <section>
+      <h2>Introduction</h2>
+      <p>Visible light communication (VLC) is emerging as a low-cost, low-interference alternative to radio frequency communication for indoor Internet of Things (IoT) and robotics. Current VLC receivers, especially photodiodes and rolling-shutter cameras, can consume significant power, struggle with fast modulation, and degrade under changing ambient lighting. Event-driven cameras may address several of these limitations, but their usefulness as VLC receivers remains underexplored.</p>
+      <p>Unlike conventional cameras, event-driven cameras record only changes in brightness instead of full image frames. By ignoring static visual information, they can react to light changes almost instantly and often with lower sensing overhead. These properties make them promising receivers for VLC, where LEDs communicate by rapidly modulating their brightness. This project studies whether event-driven cameras can decode VLC signals from blinking LEDs and whether they offer advantages over traditional cameras in latency, robustness to lighting variation, and eventually energy per bit and bit error rate.</p>
+      <p>During this quarter, the work centered on baseline characterization of the EVK4 event camera before moving on to full OOK and CSK evaluation. The goal was to determine whether the sensor could reliably capture microsecond-scale optical transitions, remain usable under changing room illumination, and provide a repeatable experimental workflow that could support the rest of the thesis.</p>
+    </section>
+
+    <section>
+      <h2>Background</h2>
+      <p>VLC enables wireless data transmission through rapid modulation of LED brightness, offering a low-cost and interference-free alternative to RF systems. Prior studies have shown that event-based optical sensors can decode OOK-based VLC by responding to abrupt brightness transitions, but much of that literature still focuses on controlled conditions and does not fully characterize how these sensors behave under realistic lighting variation.</p>
+      <p>Most current VLC receivers rely on photodiodes or frame-based CMOS cameras. Those receivers generally require continuous sampling or frame capture and therefore carry higher sensing overhead. Event-driven cameras differ because their pixels independently report brightness changes with microsecond timing resolution, which suggests that they may be especially well suited to rapid, sparse, low-latency optical communication.</p>
+      <p>The remaining research gap is not only whether event-driven sensors can decode OOK reliably, but whether they can remain robust under different lux levels and whether they can eventually support more advanced schemes such as color shift keying (CSK). This quarter focused on the Section 3.1 baseline experiments needed to answer those questions in a disciplined way before beginning the energy study in Section 3.2 and the CSK study in Section 3.4.</p>
+    </section>
+
+    <section>
+      <h2>Planned Work for Section 3.1</h2>
+      <p>The planned work for Section 3.1 was to characterize the intrinsic timing precision and responsiveness of the EVK4 event camera under controlled optical conditions before moving on to full VLC evaluation. In the proposal, this baseline phase included four main tasks: measuring latency from controlled brightness transitions, examining inter-event timing behavior, determining the minimum detectable pulse width, and measuring event density and signal-to-noise behavior under different illumination levels. The purpose of this stage was to establish whether the camera could capture short transitions consistently enough to support later OOK and CSK experiments.</p>
+    </section>
+
+    <section>
+      <h2>What Was Actually Accomplished</h2>
+     
+      <p>The strongest quarter-one outcome was that the EVK4 baseline pipeline is now reproducible. The repository now contains reusable analysis scripts for latency, inter-event timing, illumination sweeps, pulse-width sweeps, and camera-bias sweeps, and those scripts produce repeatable CSV summaries and plots instead of one-off manual inspection notes.
+     
+
+      <p>For timing responsiveness, three corrected baseline latency trials were completed in the <code>section3_1_1000Hz</code> capture set and reanalyzed with the repository latency pipeline. An earlier 30-pulse interpretation was archived after it became clear that the recording window did not actually contain all 30 expected pulses, which artificially reduced the detection rate. After correcting the schedule to the 10 pulses that were truly present in the capture window, the final baseline summary detected all 30 out of 30 pulses across the three trials. The pooled result was a mean first-event latency of 16.1 microseconds, a median latency of 6.5 microseconds, a 95th-percentile latency of 61.7 microseconds, and a worst case of 126.0 microseconds. Figure 1 and Table 1 summarize that corrected result.</p>
+
+      <figure>
+        <img src="../../plots/latency/s31_latency_1000Hz_10pulses_latency_boxplot_by_trial.png" alt="Latency boxplot by trial for the corrected 10-pulse baseline analysis.">
+        <figcaption><strong>Figure 1.</strong> Corrected baseline latency boxplot by trial. All three trials detected every expected pulse in the 10-pulse window, with most latencies clustered in the single-digit to low-double-digit microsecond range and a small number of high-latency outliers.</figcaption>
+      </figure>
+
+      <table>
+        <caption>Table 1. Corrected baseline latency summary at 1000 Hz</caption>
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Trials analyzed</td>
+            <td>3</td>
+          </tr>
+          <tr>
+            <td>Total scheduled pulses</td>
+            <td>30</td>
+          </tr>
+          <tr>
+            <td>Total detected pulses</td>
+            <td>30</td>
+          </tr>
+          <tr>
+            <td>Detection fraction</td>
+            <td>1.00</td>
+          </tr>
+          <tr>
+            <td>Mean first-event latency</td>
+            <td>16.1 us</td>
+          </tr>
+          <tr>
+            <td>Median latency</td>
+            <td>6.5 us</td>
+          </tr>
+          <tr>
+            <td>95th-percentile latency</td>
+            <td>61.7 us</td>
+          </tr>
+          <tr>
+            <td>Worst-case latency</td>
+            <td>126.0 us</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>Inter-event timing behavior was then analyzed on those same corrected 1000 Hz baseline captures to characterize how densely the EVK4 responded once a pulse was detected. For each of the 30 detected pulses, the analysis measured consecutive event spacing within a fixed 250 us window after the first detected event. All 30 pulses produced analyzable event bursts in that window. Pooled across the three trials, the mean burst contained 38.8 events over an average duration of 236.0 us, with a median inter-event interval of 3.0 us and a 95th-percentile interval of 19.3 us. Figure 2 summarizes the overall inter-event interval distribution and shows that the baseline response was not only prompt, but also temporally dense after each edge.</p>
+
+      <figure>
+        <img src="../../plots/inter%20event/s31_interevent_1000Hz_dt_histogram.png" alt="Histogram of all Section 3.1 inter-event intervals measured within 250 microseconds after each detected pulse.">
+        <figcaption><strong>Figure 2.</strong> Histogram of all Section 3.1 inter-event intervals measured within a 250 us window after the first detected event for each pulse in the corrected 1000 Hz baseline trials. The distribution is concentrated at low-microsecond spacing, with a median of 3.0 us and a 95th-percentile of 19.3 us.</figcaption>
+      </figure>
+
+      <p>For minimum detectable pulse width, the initial sweep at 1.00 ms, 0.75 ms, 0.50 ms, and 0.25 ms achieved full detection across all 120 scheduled pulses. A second sweep then extended the study to 0.20 ms, 0.15 ms, 0.10 ms, and 0.05 ms, again with 30 out of 30 detections at every tested setting. After the March 16 and March 18 follow-up work, the sweep was pushed further to 0.04 ms, 0.03 ms, 0.02 ms, and 0.01 ms; those runs also produced full detection, with 20 out of 20 detections at every setting. As of March 18, 2026, every tested pulse width from 1.00 ms down to 0.01 ms was detected successfully, giving 320 detections out of 320 scheduled pulses across the combined sweeps. The practical lower bound improved from the originally reported 50 us to 10 us, and the true failure point still was not reached. Table 2 shows the combined pulse-width summary.</p>
+
+      <table class="tight">
+        <caption>Table 2. Minimum detectable pulse-width sweep summary</caption>
+        <thead>
+          <tr>
+            <th>Pulse width (ms)</th>
+            <th>Trials</th>
+            <th>Detected / scheduled</th>
+            <th>Detection fraction</th>
+            <th>Mean latency (us)</th>
+            <th>95th percentile (us)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>1.00</td><td>3</td><td>30 / 30</td><td>1.00</td><td>82.8</td><td>280.0</td></tr>
+          <tr><td>0.75</td><td>3</td><td>30 / 30</td><td>1.00</td><td>42.6</td><td>160.7</td></tr>
+          <tr><td>0.50</td><td>3</td><td>30 / 30</td><td>1.00</td><td>56.1</td><td>290.0</td></tr>
+          <tr><td>0.25</td><td>3</td><td>30 / 30</td><td>1.00</td><td>72.8</td><td>211.8</td></tr>
+          <tr><td>0.20</td><td>3</td><td>30 / 30</td><td>1.00</td><td>75.4</td><td>208.6</td></tr>
+          <tr><td>0.15</td><td>3</td><td>30 / 30</td><td>1.00</td><td>54.9</td><td>151.5</td></tr>
+          <tr><td>0.10</td><td>3</td><td>30 / 30</td><td>1.00</td><td>72.6</td><td>232.0</td></tr>
+          <tr><td>0.05</td><td>3</td><td>30 / 30</td><td>1.00</td><td>71.9</td><td>175.0</td></tr>
+          <tr><td>0.04</td><td>2</td><td>20 / 20</td><td>1.00</td><td>75.8</td><td>265.8</td></tr>
+          <tr><td>0.03</td><td>2</td><td>20 / 20</td><td>1.00</td><td>71.1</td><td>152.5</td></tr>
+          <tr><td>0.02</td><td>2</td><td>20 / 20</td><td>1.00</td><td>77.6</td><td>290.0</td></tr>
+          <tr><td>0.01</td><td>2</td><td>20 / 20</td><td>1.00</td><td>121.5</td><td>364.0</td></tr>
+        </tbody>
+      </table>
+      <p class="small-note">The 0.01 ms through 0.04 ms results were added after the initial report draft. They materially strengthen the baseline claim because they show that the EVK4 still responds reliably at 10 us under the controlled setup used this quarter.</p>
+
+      <p>For illumination sensitivity, a lux sweep was completed at 0, 62, 300, and 512 lux with three trials at each lighting level. Those experiments generated event-rate, noise-rate, and SNR summaries. Across all four ambient-light conditions, the transmitted signal remained strongly separated from the background according to the current SNR proxy. Mean SNR z-score values ranged from about 6.5e3 to 1.03e4, which indicates that the camera continued to produce a strong signal-driven event response even as room lighting changed substantially. Figure 3 and Table 3 summarize the illumination result.</p>
+
+      <figure>
+        <img src="../../plots/lux%20sweep/s31_lux_sweep_1000Hz_snr_vs_lux_errorbar_mean_std.png" alt="SNR vs Lux (mean &plusmn; std) plot with error bars for the EVK4 baseline illumination sweep.">
+        <figcaption><strong>Figure 3.</strong> SNR z-score versus ambient illumination for the 1000 Hz lux sweep. The response remained strongly separated from the measured background at every tested lux level.</figcaption>
+      </figure>
+
+      <table class="tight">
+        <caption>Table 3. Illumination sweep summary at 1000 Hz</caption>
+        <thead>
+          <tr>
+            <th>Lux</th>
+            <th>Trials</th>
+            <th>Signal rate mean (events/s)</th>
+            <th>Noise rate mean (events/s)</th>
+            <th>SNR z-score mean</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>0</td><td>3</td><td>20,334,653.93</td><td>7,412.37</td><td>6,576.19</td></tr>
+          <tr><td>62</td><td>3</td><td>71,656,193.48</td><td>65,834.00</td><td>8,598.24</td></tr>
+          <tr><td>300</td><td>3</td><td>44,155,137.75</td><td>39,051.00</td><td>6,543.89</td></tr>
+          <tr><td>512</td><td>3</td><td>61,101,515.92</td><td>23,783.52</td><td>10,293.55</td></tr>
+        </tbody>
+      </table>
+
+      <p>In addition to those core Section 3.1 experiments, the quarter also included bias tuning for <code>bias_fo</code>, <code>bias_refr</code>, and <code>bias_diff</code>. Those sweeps now have dedicated analysis scripts, CSV outputs, and plots in the repository. Although bias tuning was support work rather than the primary deliverable of Section 3.1, it improved event-stream quality and helped establish repeatable camera settings for later VLC experiments.</p>
+
+      <h3>GitHub Commit Log for This Quarter</h3>
+      <p class="small-note">Each title below links directly to the GitHub commit. The list is ordered chronologically and documents the repository work underlying the experiments summarized above.</p>
+
+      <p class="month">February 2026</p>
+      <ol class="commit-log">
+        <li><strong>2026-02-18</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/a73b0a8">Initial thesis code</a> - Added the first working event-camera VLC codebase to the repository.</li>
+        <li><strong>2026-02-18</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/e7f5af4">Allowing .csv files in GitHub</a> - Updated tracking rules so experiment outputs could be versioned with the analysis.</li>
+        <li><strong>2026-02-20</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/209cb3b">New analyzing code, plots folder, .vscode. Added test data</a> - Added the first round of analysis scripts, plot storage, and sample data.</li>
+        <li><strong>2026-02-20</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/c3d4656">updated file names</a> - Standardized filenames so the analysis outputs were easier to manage.</li>
+        <li><strong>2026-02-21</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/abaff54">removed analyze_metrics2.py</a> - Removed an obsolete analysis file after the pipeline was reorganized.</li>
+        <li><strong>2026-02-23</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/d1d6e27">new data and plots</a> - Added newly generated experiment outputs to the repo.</li>
+        <li><strong>2026-02-23</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/800b2bd">new bias_diff test code for the EVK4</a> - Introduced the first dedicated script for the <code>bias_diff</code> sweep.</li>
+        <li><strong>2026-02-23</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/b9d73e8">finished testing bias diff for EVK4</a> - Added completed <code>bias_diff</code> results after running the sweep.</li>
+        <li><strong>2026-02-23</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/e43dabd">added last two bias tests to src, testing later</a> - Added the remaining bias-test source files needed to finish calibration work.</li>
+        <li><strong>2026-02-24</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/b8f1343">Modified bias_fo and bias_refr to enter correct folders for .raw files</a> - Fixed path handling so the bias-analysis scripts found the correct captures.</li>
+        <li><strong>2026-02-24</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/9bc7fa3">added senior thesis proposal</a> - Added the proposal document used to anchor the quarter plan.</li>
+        <li><strong>2026-02-25</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/d9dccdd">modified bias_refr_analyze to correctly save plots and data</a> - Fixed output saving for the <code>bias_refr</code> analysis path.</li>
+        <li><strong>2026-02-25</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/8f37d11">modified code to save CSV and plots correctly</a> - Improved the shared output pipeline so generated data and plots landed in the right locations.</li>
+        <li><strong>2026-02-26</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/227b9d0">modified both refr and fo analyze files, refr needed to have a cap on events, pc ran out of ram :(</a> - Added guardrails to the bias-analysis scripts after one path grew too large in memory.</li>
+        <li><strong>2026-02-26</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/bfb2800">finished testing bias settings</a> - Added the completed bias-parameter sweeps used for camera calibration.</li>
+        <li><strong>2026-02-26</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/b00c9f3">small modifications to file names</a> - Cleaned up remaining naming inconsistencies in the stored outputs.</li>
+      </ol>
+
+      <p class="month">March 2026</p>
+      <ol class="commit-log" start="17">
+        <li><strong>2026-03-01</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/1c952af">added latency_analyze, organized bias testing files</a> - Added the reusable latency-analysis workflow and reorganized the bias outputs.</li>
+        <li><strong>2026-03-01</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/3035f42">finished latency trials</a> - Added the completed latency captures used for Section 3.1 baseline timing.</li>
+        <li><strong>2026-03-01</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/b249a0d">fixed latency boxplot</a> - Corrected the latency visualization so the baseline plot rendered properly.</li>
+        <li><strong>2026-03-03</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/9e012aa">code for lux sweep analyzing added</a> - Added the analysis workflow for the illumination-sensitivity experiments.</li>
+        <li><strong>2026-03-04</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/4656dda">created disaster plan in README.md and moved camera settings to repo</a> - Documented recovery steps and moved camera settings into version control.</li>
+        <li><strong>2026-03-04</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/82e1ecf">README edits</a> - Refined the repository instructions during the pipeline setup stage.</li>
+        <li><strong>2026-03-04</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/a23fd37">Update README with clearer cloning instructions</a> - Improved repo onboarding so the workflow could be reproduced more easily.</li>
+        <li><strong>2026-03-05</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/e512738">completed pulse width sweeps and modified gitignore</a> - Added the first pulse-width sweep results and updated output tracking.</li>
+        <li><strong>2026-03-05</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/e312fd7">corrected pulse width sweeps</a> - Corrected the stored pulse-width results after identifying issues in the earlier run.</li>
+        <li><strong>2026-03-09</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/b645038">lux sweeps completed</a> - Added the completed lux-sweep data and plots used in the illumination summary.</li>
+        <li><strong>2026-03-10</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/16fd5b9">Added experiment replication file</a> - Added the benchmark-replication planning document for the next experiment stage.</li>
+        <li><strong>2026-03-11</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/5a291d5">latency results modified</a> - Updated the latency outputs after refining the baseline analysis.</li>
+        <li><strong>2026-03-11</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/7b51dac">added transmitter code to repo</a> - Added the transmitter-side code needed to coordinate later VLC tests.</li>
+        <li><strong>2026-03-15</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/3262ef8">Update README with clearer setup instructions</a> - Clarified the setup path so the experiment environment could be recreated more reliably.</li>
+        <li><strong>2026-03-16</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/ba922d4">modified led transmitter behavior code</a> - Tuned the transmitter behavior to support shorter pulse-width experiments.</li>
+        <li><strong>2026-03-16</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/33e941e">min det. pulse width trials again, evk4 still beat tests</a> - Added a new pulse-width sweep showing that the EVK4 still did not fail at the tested bound.</li>
+        <li><strong>2026-03-16</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/43b12e3">new min pulse width tests</a> - Added another round of minimum detectable pulse-width experiments.</li>
+        <li><strong>2026-03-16</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/5a13117">fixed bug causing led to go strobe light mode</a> - Corrected a transmitter bug that interfered with short-pulse testing.</li>
+        <li><strong>2026-03-16</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/71d12f9">0.20 to 0.05 min pulse width tests</a> - Added the successful 0.20 ms through 0.05 ms pulse-width sweep.</li>
+        <li><strong>2026-03-18</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/e6f68a4">sub 0.05ms pulse width test mods</a> - Modified the workflow to support pulse-width experiments below 0.05 ms.</li>
+        <li><strong>2026-03-18</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/aff79ba">0.04ms to 0.01ms min det pulse width tests</a> - Added the 40 us through 10 us sweep that extended the baseline lower bound.</li>
+        <li><strong>2026-03-18</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/6fd8fe6">new transmitter mods for 0.005ms and 0.001ms min det P.W. tests</a> - Prepared the transmitter for even shorter pulse-width experiments that can continue next quarter.</li>
+        <li><strong>2026-03-18</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/f93ca43">done w min detectable pulse width tests</a> - Closed out the quarter's minimum pulse-width testing pass and stored the outputs.</li>
+        <li><strong>2026-03-23</strong> - <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC/commit/4955cb6">plot and data orginization</a> - Organized the generated plots and CSV summaries for easier reporting and review.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Remaining Work Entering Spring 2026</h2>
+      <p>As of March 23, 2026, the major remaining baseline objective is no longer to prove that sub-50 us pulse width sensing is possible, since reliable detection was demonstrated down to 10 us. The next step is to determine the true failure point of the EVK4 under the controlled setup, but further characterization below 10 us was limited this quarter by instability in the LED transmitter setup. </p>
+      <p>The benchmark replication from Section 3.1 is also still outstanding. That next step should use known transmitted bit sequences, controlled frequency sweeps, and BER or message-accuracy measurements so that the EVK4 results can be compared directly against the published baseline from von Arnim et al. Once that work is complete, the Section 3.1 baseline story will be much stronger because it will include not only latency and pulse-width limits, but also an accuracy-based comparison against prior art.</p>
+      <p>Spring quarter should then focus on two broader thesis directions. First, Section 3.2 should begin instrumented power measurements so that sensing energy, host-side compute cost, and total energy per bit can be quantified under matched OOK settings. Second, Section 3.4 should move the existing RGB transmitter groundwork into real CSK experiments by collecting event-camera captures, building the corresponding decoding pipeline, and reporting symbol accuracy or BER under those multicolor transmissions.</p>
+    </section>
+
+    <p class="footer">Repository referenced throughout this report: <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC">https://github.com/jlab-sensing/Event-Driven-Camera-VLC</a></p>
+  </main>
+</body>
+</html>
