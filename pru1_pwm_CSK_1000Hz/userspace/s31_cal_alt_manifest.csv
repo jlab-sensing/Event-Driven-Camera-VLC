@@ -1,2 +1,3 @@
 requested_frequency_hz,actual_frequency_hz,symbols_per_bit,active_bits,guard_bits,total_symbols,duration_s,output_file
 500.0,500.0,2000,1500,100,3400000,3.4,s31_cal_alt_500Hz_symbols.txt
+1000.0,1000.0,1000,1500,100,1700000,1.7,s31_cal_alt_1000Hz_symbols.txt
