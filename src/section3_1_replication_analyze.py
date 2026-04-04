@@ -10,9 +10,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from metavision_core.event_io import EventsIterator
 
 from io_utils import repo_root_from_this_file
-from latency_analyze import load_timestamps_us
 
 
 # ----------------------------
@@ -64,6 +64,20 @@ class ManifestEntry:
     output_file: str
 
 
+@dataclass
+class CalibrationEntry:
+    raw_file: str
+    nominal_frequency_hz: float
+    active_start_s: float
+    active_end_s: float
+    active_duration_s: float
+    roi_x0: int
+    roi_y0: int
+    roi_x1: int
+    roi_y1: int
+    estimated_bit_frequency_hz: float
+
+
 def load_frequency_map_csv(path: str) -> Dict[str, float]:
     mapping: Dict[str, float] = {}
     with open(path, "r", newline="", encoding="utf-8") as f:
@@ -88,6 +102,49 @@ def load_frequency_map_csv(path: str) -> Dict[str, float]:
             mapping[os.path.basename(raw_file)] = float(freq_text)
 
     return mapping
+
+
+def load_calibration_summaries(calibration_dir: str) -> Dict[str, CalibrationEntry]:
+    entries: Dict[str, CalibrationEntry] = {}
+    for name in os.listdir(calibration_dir):
+        if not name.lower().endswith(".csv") or not name.lower().endswith("_summary.csv"):
+            continue
+        path = os.path.join(calibration_dir, name)
+        with open(path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            if reader.fieldnames is None:
+                continue
+            required = {
+                "raw_file",
+                "nominal_frequency_hz",
+                "active_start_s",
+                "active_end_s",
+                "active_duration_s",
+                "roi_x0",
+                "roi_y0",
+                "roi_x1",
+                "roi_y1",
+                "estimated_bit_frequency_hz",
+            }
+            if not required.issubset(set(reader.fieldnames)):
+                continue
+            for row in reader:
+                raw_file = os.path.basename(row["raw_file"].strip())
+                if not raw_file:
+                    continue
+                entries[raw_file] = CalibrationEntry(
+                    raw_file=raw_file,
+                    nominal_frequency_hz=float(row["nominal_frequency_hz"]),
+                    active_start_s=float(row["active_start_s"]),
+                    active_end_s=float(row["active_end_s"]),
+                    active_duration_s=float(row["active_duration_s"]),
+                    roi_x0=int(row["roi_x0"]),
+                    roi_y0=int(row["roi_y0"]),
+                    roi_x1=int(row["roi_x1"]),
+                    roi_y1=int(row["roi_y1"]),
+                    estimated_bit_frequency_hz=float(row["estimated_bit_frequency_hz"]),
+                )
+    return entries
 
 
 def load_transmission_manifest(path: str) -> Dict[float, ManifestEntry]:
@@ -144,17 +201,65 @@ def extract_frequency_from_name(filename: str, pattern: str) -> Optional[float]:
 # ----------------------------
 # Trim and bin captures
 # ----------------------------
+def load_timestamps_us_filtered(
+    raw_path: str,
+    roi: Optional[tuple[int, int, int, int]] = None,
+) -> tuple[np.ndarray, int, int, int]:
+    events = EventsIterator(input_path=raw_path)
+    chunks: List[np.ndarray] = []
+    capture_start_us: Optional[int] = None
+    capture_end_us: Optional[int] = None
+    capture_events = 0
+
+    for evs in events:
+        if evs.size == 0:
+            continue
+        t = evs["t"].astype(np.int64)
+        capture_events += int(evs.size)
+        if capture_start_us is None:
+            capture_start_us = int(t[0])
+        capture_end_us = int(t[-1])
+
+        if roi is not None:
+            x0, y0, x1, y1 = roi
+            mask = (
+                (evs["x"] >= x0)
+                & (evs["x"] < x1)
+                & (evs["y"] >= y0)
+                & (evs["y"] < y1)
+            )
+            if not np.any(mask):
+                continue
+            chunks.append(t[mask])
+        else:
+            chunks.append(t)
+
+    if capture_start_us is None or capture_end_us is None:
+        return np.array([], dtype=np.int64), 0, 0, 0
+
+    if not chunks:
+        return np.array([], dtype=np.int64), capture_start_us, capture_end_us, capture_events
+
+    ts_us = np.concatenate(chunks)
+    if ts_us.size > 1 and np.any(np.diff(ts_us) < 0):
+        ts_us = np.sort(ts_us)
+    return ts_us, capture_start_us, capture_end_us, capture_events
+
+
 def window_and_zero_times(
     ts_rel_s: np.ndarray,
     window_start_s: float,
     window_end_s: float,
+    capture_end_s: Optional[float] = None,
 ) -> tuple[np.ndarray, float]:
-    if ts_rel_s.size == 0:
-        return np.array([], dtype=np.float64), 0.0
+    effective_capture_end_s = float(capture_end_s) if capture_end_s is not None else 0.0
+    if capture_end_s is None:
+        if ts_rel_s.size == 0:
+            return np.array([], dtype=np.float64), 0.0
+        effective_capture_end_s = float(ts_rel_s.max())
 
-    capture_end_s = float(ts_rel_s.max())
-    bounded_start_s = float(min(max(0.0, window_start_s), capture_end_s))
-    bounded_end_s = float(min(max(0.0, window_end_s), capture_end_s))
+    bounded_start_s = float(min(max(0.0, window_start_s), effective_capture_end_s))
+    bounded_end_s = float(min(max(0.0, window_end_s), effective_capture_end_s))
     if bounded_end_s <= bounded_start_s:
         return np.array([], dtype=np.float64), 0.0
 
@@ -321,8 +426,10 @@ def compare_candidates(current: Optional["CandidateResult"], challenger: "Candid
 
 @dataclass
 class CandidateResult:
+    decode_rate_hz: float
     phase_s: float
     message_offset_bits: int
+    init_bit: int
     threshold: float
     n_symbols_total: int
     n_symbols_scored: int
@@ -338,6 +445,7 @@ def score_symbol_stream(
     sym_sums: np.ndarray,
     truth_message_bits: np.ndarray,
     phase_s: float,
+    decode_rate_hz: float,
 ) -> Optional[CandidateResult]:
     if sym_sums.size < truth_message_bits.size:
         return None
@@ -371,8 +479,10 @@ def score_symbol_stream(
         mar = float(n_correct_messages / n_messages) if n_messages > 0 else float("nan")
 
         candidate = CandidateResult(
+            decode_rate_hz=float(decode_rate_hz),
             phase_s=float(phase_s),
             message_offset_bits=int(offset),
+            init_bit=int(decoded_bits[0]) if decoded_bits.size else 0,
             threshold=float(threshold),
             n_symbols_total=int(decoded_bits.size),
             n_symbols_scored=int(usable.size),
@@ -420,10 +530,156 @@ def search_best_decode(
             sym_sums=sym_sums,
             truth_message_bits=truth_message_bits,
             phase_s=float(phase_s),
+            decode_rate_hz=float(symbol_rate_hz),
         )
         if candidate is not None and compare_candidates(best, candidate):
             best = candidate
 
+    return best
+
+
+def integrate_boundary_counts(
+    t_bins: np.ndarray,
+    counts: np.ndarray,
+    duration_s: float,
+    symbol_rate_hz: float,
+    start_time_s: float,
+    edge_window_fraction: float,
+) -> np.ndarray:
+    if symbol_rate_hz <= 0 or duration_s <= start_time_s:
+        return np.array([], dtype=np.float64)
+    if edge_window_fraction <= 0:
+        return np.array([], dtype=np.float64)
+
+    symbol_period_s = 1.0 / symbol_rate_hz
+    n_boundaries = int(np.floor((duration_s - start_time_s) / symbol_period_s))
+    if n_boundaries <= 0:
+        return np.array([], dtype=np.float64)
+
+    half_window_s = 0.5 * edge_window_fraction * symbol_period_s
+    cumulative = np.concatenate(([0.0], np.cumsum(counts)))
+    boundaries = start_time_s + np.arange(n_boundaries, dtype=np.float64) * symbol_period_s
+    left_edges = boundaries - half_window_s
+    right_edges = boundaries + half_window_s
+
+    left_idx = np.searchsorted(t_bins, left_edges, side="left")
+    right_idx = np.searchsorted(t_bins, right_edges, side="left")
+    left_idx = np.clip(left_idx, 0, counts.size)
+    right_idx = np.clip(right_idx, 0, counts.size)
+    return cumulative[right_idx] - cumulative[left_idx]
+
+
+def score_transition_stream(
+    boundary_counts: np.ndarray,
+    truth_message_bits: np.ndarray,
+    phase_s: float,
+    decode_rate_hz: float,
+) -> Optional[CandidateResult]:
+    if boundary_counts.size + 1 < truth_message_bits.size:
+        return None
+
+    threshold = auto_threshold(boundary_counts)
+    if not np.isfinite(threshold):
+        return None
+
+    edge_bits = (boundary_counts >= threshold).astype(np.uint8)
+    best: Optional[CandidateResult] = None
+    message_len = int(truth_message_bits.size)
+
+    for init_bit in (0, 1):
+        decoded_bits = np.empty(edge_bits.size + 1, dtype=np.uint8)
+        decoded_bits[0] = np.uint8(init_bit)
+        for i, edge in enumerate(edge_bits, start=1):
+            decoded_bits[i] = decoded_bits[i - 1] ^ np.uint8(edge)
+
+        for offset in range(message_len):
+            usable = decoded_bits[offset:]
+            n_messages = int(usable.size // message_len)
+            if n_messages <= 0:
+                continue
+
+            usable = usable[: n_messages * message_len]
+            truth_repeated = np.tile(truth_message_bits, n_messages)
+            n_bit_errors = int(np.sum(usable != truth_repeated))
+            ber = float(n_bit_errors / usable.size) if usable.size > 0 else float("nan")
+
+            decoded_messages = usable.reshape(n_messages, message_len)
+            truth_messages = np.tile(truth_message_bits, (n_messages, 1))
+            correct_messages = np.all(decoded_messages == truth_messages, axis=1)
+            n_correct_messages = int(np.sum(correct_messages))
+            mar = float(n_correct_messages / n_messages) if n_messages > 0 else float("nan")
+
+            candidate = CandidateResult(
+                decode_rate_hz=float(decode_rate_hz),
+                phase_s=float(phase_s),
+                message_offset_bits=int(offset),
+                init_bit=int(init_bit),
+                threshold=float(threshold),
+                n_symbols_total=int(decoded_bits.size),
+                n_symbols_scored=int(usable.size),
+                n_messages=n_messages,
+                n_correct_messages=n_correct_messages,
+                mar=mar,
+                n_bit_errors=n_bit_errors,
+                ber=ber,
+                decoded_bits=usable.copy(),
+            )
+            if compare_candidates(best, candidate):
+                best = candidate
+
+    return best
+
+
+def search_best_transition_decode(
+    t_bins: np.ndarray,
+    counts: np.ndarray,
+    duration_s: float,
+    nominal_rate_hz: float,
+    truth_message_bits: np.ndarray,
+    phase_steps: int,
+    rate_min_scale: float,
+    rate_max_scale: float,
+    rate_steps: int,
+    edge_window_fraction: float,
+) -> Optional[CandidateResult]:
+    if phase_steps <= 0:
+        raise ValueError("phase_steps must be > 0")
+    if nominal_rate_hz <= 0:
+        raise ValueError("nominal_rate_hz must be > 0")
+    if rate_steps <= 0:
+        raise ValueError("rate_steps must be > 0")
+    if rate_min_scale <= 0 or rate_max_scale <= 0 or rate_max_scale < rate_min_scale:
+        raise ValueError("rate scales must be > 0 and max >= min")
+    if edge_window_fraction <= 0:
+        raise ValueError("edge_window_fraction must be > 0")
+
+    candidate_rates = np.linspace(
+        nominal_rate_hz * rate_min_scale,
+        nominal_rate_hz * rate_max_scale,
+        rate_steps,
+        dtype=np.float64,
+    )
+    best: Optional[CandidateResult] = None
+    for decode_rate_hz in candidate_rates:
+        symbol_period_s = 1.0 / float(decode_rate_hz)
+        phases = np.linspace(0.0, symbol_period_s, phase_steps, endpoint=False)
+        for phase_s in phases:
+            boundary_counts = integrate_boundary_counts(
+                t_bins=t_bins,
+                counts=counts,
+                duration_s=duration_s,
+                symbol_rate_hz=float(decode_rate_hz),
+                start_time_s=float(phase_s),
+                edge_window_fraction=edge_window_fraction,
+            )
+            candidate = score_transition_stream(
+                boundary_counts=boundary_counts,
+                truth_message_bits=truth_message_bits,
+                phase_s=float(phase_s),
+                decode_rate_hz=float(decode_rate_hz),
+            )
+            if candidate is not None and compare_candidates(best, candidate):
+                best = candidate
     return best
 
 
@@ -436,6 +692,9 @@ class FileResult:
     raw_file: str
     frequency_hz: float
     symbol_rate_hz: float
+    decode_rate_hz: float
+    capture_events: int
+    loaded_events: int
     capture_duration_s: float
     duration_s: float
     total_events: int
@@ -447,7 +706,14 @@ class FileResult:
     trim_end_s: float
     expected_transmit_duration_s: float
     active_window_source: str
+    roi_source: str
+    roi_x0: int
+    roi_y0: int
+    roi_x1: int
+    roi_y1: int
+    decode_mode: str
     phase_s: float
+    init_bit: int
     threshold: float
     message_offset_bits: int
     n_symbols_total: int
@@ -545,6 +811,7 @@ def main() -> None:
     root = repo_root_from_this_file(__file__)
     default_input_dir = os.path.abspath(os.path.join(root, "..", "captures", "experiment_replication_3_1"))
     default_manifest_csv = os.path.join(root, "pru1_pwm_CSK_1000Hz", "userspace", "s31_replication_manifest.csv")
+    default_calibration_dir = os.path.join(root, "data", "replication_calibration")
 
     ap = argparse.ArgumentParser(
         description="Analyze the Section 3.1 frequency-sweep replication experiment and compute MAR/BER."
@@ -575,9 +842,24 @@ def main() -> None:
         help="Optional symbol manifest CSV used to recover actual transmit frequency/duration per sweep setting.",
     )
     ap.add_argument(
+        "--calibration_dir",
+        default=default_calibration_dir,
+        help="Optional folder of per-file calibration summary CSVs that define active windows and ROI boxes.",
+    )
+    ap.add_argument(
         "--no_manifest_window",
         action="store_true",
         help="Disable manifest-based active-window detection and decode the full manual-trimmed capture instead.",
+    )
+    ap.add_argument(
+        "--no_calibration_window",
+        action="store_true",
+        help="Disable use of calibration-summary active windows and ROI boxes even if matching summaries exist.",
+    )
+    ap.add_argument(
+        "--use_calibrated_frequency",
+        action="store_true",
+        help="When a calibration summary exists, use its estimated bit frequency instead of the nominal/manifest frequency.",
     )
     ap.add_argument(
         "--freq_regex",
@@ -597,6 +879,12 @@ def main() -> None:
         help="Histogram bin width in microseconds for decoding.",
     )
     ap.add_argument(
+        "--decode_mode",
+        choices=("activity", "transition"),
+        default="activity",
+        help="Decode either from per-symbol activity counts or from transition bursts at bit boundaries.",
+    )
+    ap.add_argument(
         "--phase_steps",
         type=int,
         default=25,
@@ -607,6 +895,30 @@ def main() -> None:
         type=float,
         default=250.0,
         help="Bin width in microseconds when searching for the active transmit window inside each capture.",
+    )
+    ap.add_argument(
+        "--transition_rate_min_scale",
+        type=float,
+        default=0.5,
+        help="Lower bound of the transition-decoder bit-rate search range, as a multiple of the nominal rate.",
+    )
+    ap.add_argument(
+        "--transition_rate_max_scale",
+        type=float,
+        default=1.5,
+        help="Upper bound of the transition-decoder bit-rate search range, as a multiple of the nominal rate.",
+    )
+    ap.add_argument(
+        "--transition_rate_steps",
+        type=int,
+        default=81,
+        help="How many candidate bit rates to search when using transition decoding.",
+    )
+    ap.add_argument(
+        "--edge_window_fraction",
+        type=float,
+        default=0.4,
+        help="Transition-decoder boundary window width as a fraction of the candidate bit period.",
     )
     ap.add_argument(
         "--trim_start_s",
@@ -640,6 +952,14 @@ def main() -> None:
         raise ValueError("--phase_steps must be > 0")
     if args.window_search_bin_us <= 0:
         raise ValueError("--window_search_bin_us must be > 0")
+    if args.transition_rate_min_scale <= 0 or args.transition_rate_max_scale <= 0:
+        raise ValueError("--transition_rate_min_scale and --transition_rate_max_scale must be > 0")
+    if args.transition_rate_max_scale < args.transition_rate_min_scale:
+        raise ValueError("--transition_rate_max_scale must be >= --transition_rate_min_scale")
+    if args.transition_rate_steps <= 0:
+        raise ValueError("--transition_rate_steps must be > 0")
+    if args.edge_window_fraction <= 0:
+        raise ValueError("--edge_window_fraction must be > 0")
     if args.trim_start_s < 0 or args.trim_end_s < 0:
         raise ValueError("--trim_start_s and --trim_end_s must be >= 0")
 
@@ -660,6 +980,11 @@ def main() -> None:
     manifest = (
         load_transmission_manifest(args.manifest_csv)
         if args.manifest_csv and os.path.exists(args.manifest_csv) and not args.no_manifest_window
+        else {}
+    )
+    calibration = (
+        load_calibration_summaries(args.calibration_dir)
+        if args.calibration_dir and os.path.isdir(args.calibration_dir) and not args.no_calibration_window
         else {}
     )
 
@@ -692,20 +1017,39 @@ def main() -> None:
             )
 
         manifest_entry = lookup_manifest_entry(manifest, float(frequency_hz))
+        calibration_entry = calibration.get(raw_file)
         symbol_rate_hz = (
-            float(manifest_entry.actual_frequency_hz)
+            float(calibration_entry.estimated_bit_frequency_hz)
+            if calibration_entry is not None and args.use_calibrated_frequency and np.isfinite(calibration_entry.estimated_bit_frequency_hz) and calibration_entry.estimated_bit_frequency_hz > 0
+            else float(manifest_entry.actual_frequency_hz)
             if manifest_entry is not None
             else float(frequency_hz * args.symbol_rate_scale)
         )
-        # Load and re-zero the event timestamps for decoding.
-        ts_us = load_timestamps_us(raw_path)
-        total_events = int(ts_us.size)
-        if total_events < 2:
+
+        roi: Optional[tuple[int, int, int, int]] = None
+        roi_source = "full_frame"
+        if calibration_entry is not None:
+            roi = (
+                calibration_entry.roi_x0,
+                calibration_entry.roi_y0,
+                calibration_entry.roi_x1,
+                calibration_entry.roi_y1,
+            )
+            roi_source = "calibration_summary"
+
+        ts_us, capture_start_us, capture_end_us, capture_events = load_timestamps_us_filtered(raw_path, roi=roi)
+        loaded_events = int(ts_us.size)
+        if loaded_events < 2:
             raise RuntimeError(f"Not enough events in {raw_file} to decode.")
 
-        ts_rel_s = (ts_us - ts_us[0]).astype(np.float64) * 1e-6
-        capture_duration_s = float(ts_rel_s.max())
-        if manifest_entry is not None:
+        ts_rel_s = (ts_us - capture_start_us).astype(np.float64) * 1e-6
+        capture_duration_s = float((capture_end_us - capture_start_us) * 1e-6)
+        if calibration_entry is not None:
+            analysis_start_s = float(calibration_entry.active_start_s + args.trim_start_s)
+            analysis_end_s = float(calibration_entry.active_end_s - args.trim_end_s)
+            expected_transmit_duration_s = float(calibration_entry.active_duration_s)
+            active_window_source = "calibration_summary"
+        elif manifest_entry is not None:
             auto_window_start_s, auto_window_end_s = find_manifest_analysis_window(
                 ts_rel_s=ts_rel_s,
                 manifest_entry=manifest_entry,
@@ -726,6 +1070,7 @@ def main() -> None:
             ts_rel_s=ts_rel_s,
             window_start_s=analysis_start_s,
             window_end_s=analysis_end_s,
+            capture_end_s=capture_duration_s,
         )
         if duration_s <= 0 or trimmed_times_s.size < 2:
             raise RuntimeError(
@@ -740,17 +1085,31 @@ def main() -> None:
             duration_s=duration_s,
         )
 
-        best = search_best_decode(
-            t_bins=t_bins,
-            counts=counts,
-            duration_s=duration_s,
-            symbol_rate_hz=symbol_rate_hz,
-            truth_message_bits=truth_message_bits,
-            phase_steps=args.phase_steps,
-        )
+        if args.decode_mode == "transition":
+            best = search_best_transition_decode(
+                t_bins=t_bins,
+                counts=counts,
+                duration_s=duration_s,
+                nominal_rate_hz=symbol_rate_hz,
+                truth_message_bits=truth_message_bits,
+                phase_steps=args.phase_steps,
+                rate_min_scale=args.transition_rate_min_scale,
+                rate_max_scale=args.transition_rate_max_scale,
+                rate_steps=args.transition_rate_steps,
+                edge_window_fraction=args.edge_window_fraction,
+            )
+        else:
+            best = search_best_decode(
+                t_bins=t_bins,
+                counts=counts,
+                duration_s=duration_s,
+                symbol_rate_hz=symbol_rate_hz,
+                truth_message_bits=truth_message_bits,
+                phase_steps=args.phase_steps,
+            )
         if best is None:
             raise RuntimeError(
-                f"Could not decode any complete messages from {raw_file}. Try smaller --bin_us, more --phase_steps, or trims."
+                f"Could not decode any complete messages from {raw_file}. Try smaller --bin_us, more --phase_steps, wider transition-rate search, or trims."
             )
 
         # Save the best decode summary for this one capture.
@@ -759,9 +1118,12 @@ def main() -> None:
             raw_file=raw_file,
             frequency_hz=float(frequency_hz),
             symbol_rate_hz=symbol_rate_hz,
+            decode_rate_hz=float(best.decode_rate_hz),
+            capture_events=int(capture_events),
+            loaded_events=int(loaded_events),
             capture_duration_s=capture_duration_s,
             duration_s=float(duration_s),
-            total_events=total_events,
+            total_events=int(trimmed_times_s.size),
             events_per_s=events_per_s,
             bin_us=float(args.bin_us),
             analysis_start_s=float(analysis_start_s),
@@ -770,7 +1132,14 @@ def main() -> None:
             trim_end_s=float(args.trim_end_s),
             expected_transmit_duration_s=expected_transmit_duration_s,
             active_window_source=active_window_source,
+            roi_source=roi_source,
+            roi_x0=int(roi[0]) if roi is not None else -1,
+            roi_y0=int(roi[1]) if roi is not None else -1,
+            roi_x1=int(roi[2]) if roi is not None else -1,
+            roi_y1=int(roi[3]) if roi is not None else -1,
+            decode_mode=args.decode_mode,
             phase_s=float(best.phase_s),
+            init_bit=int(best.init_bit),
             threshold=float(best.threshold),
             message_offset_bits=int(best.message_offset_bits),
             n_symbols_total=int(best.n_symbols_total),
@@ -804,6 +1173,9 @@ def main() -> None:
         print(
             f"Done: {raw_file} "
             f"freq={frequency_hz:.1f}Hz "
+            f"roi={roi_source} "
+            f"mode={args.decode_mode} "
+            f"rate={best.decode_rate_hz:.1f}Hz "
             f"window={analysis_start_s:.3f}-{analysis_end_s:.3f}s "
             f"messages={best.n_messages} "
             f"MAR={best.mar:.3f} "
@@ -821,6 +1193,9 @@ def main() -> None:
             "raw_file",
             "frequency_hz",
             "symbol_rate_hz",
+            "decode_rate_hz",
+            "capture_events",
+            "loaded_events",
             "capture_duration_s",
             "duration_s",
             "total_events",
@@ -832,7 +1207,14 @@ def main() -> None:
             "trim_end_s",
             "expected_transmit_duration_s",
             "active_window_source",
+            "roi_source",
+            "roi_x0",
+            "roi_y0",
+            "roi_x1",
+            "roi_y1",
+            "decode_mode",
             "phase_s",
+            "init_bit",
             "threshold",
             "message_offset_bits",
             "n_symbols_total",
