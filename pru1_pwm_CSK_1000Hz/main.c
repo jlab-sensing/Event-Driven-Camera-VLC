@@ -71,6 +71,8 @@
 
 #define CYCLES_PER_SECOND     200000000 /* PRU has 200 MHz clock */
 #define NANOSECONDS_PER_CYCLE 5
+// Calibrated down from 200 cycles to offset loop/shared-memory overhead.
+#define SYMBOL_DELAY_CYCLES   130
 
 /* ## RPMSG DEFINES ## */
 
@@ -359,7 +361,7 @@ void main(void) {
                 // PWMSS1.EPWM_TBCTL_bit.CTRMODE = 0b00;  // counter enable
                 // PWMSS2.EPWM_TBCTL_bit.CTRMODE = 0b00;  // counter enable
                 // PRU_PRINT_UNSIGNED_INT(buffer1[i]);
-                __delay_cycles(200);     // 200 * 5 ns == 1,000 ns == 0.001 ms
+                __delay_cycles(SYMBOL_DELAY_CYCLES); // The rest of the loop adds the remaining symbol time.
                 // PWMSS1.EPWM_TBCTL_bit.CTRMODE = 0b11;  // counter disable
                 // PWMSS2.EPWM_TBCTL_bit.CTRMODE = 0b11;  // counter disable
 

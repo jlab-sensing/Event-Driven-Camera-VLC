@@ -1,0 +1,2 @@
+raw_file,nominal_frequency_hz,capture_duration_s,active_start_s,active_end_s,active_duration_s,activity_threshold,baseline_start_s,baseline_end_s,roi_x0,roi_y0,roi_x1,roi_y1,roi_peak_score,roi_events,polarity_on_fraction,transition_bin_us,peak_count,peak_height_threshold,median_peak_dt_ms,estimated_bit_period_ms,estimated_bit_frequency_hz
+s31_cal_500Hz_alt_t2.raw,500.0,9.007716,3.65,8.75,5.1,620.259510017574,0.0,5.1,512,320,640,448,1773937.0,30734705,0.5501730698244867,50.0,510,4501.3616666666685,5.4000000000002935,2.6893244370308587,371.8405954411537
