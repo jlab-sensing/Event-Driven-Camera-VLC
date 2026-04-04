@@ -70,6 +70,13 @@ class CalibrationSummary:
     peak_count: int
     peak_height_threshold: float
     median_peak_dt_ms: float
+    peak_estimated_bit_period_ms: float
+    peak_estimated_bit_frequency_hz: float
+    fft_peak_frequency_hz: float
+    fft_peak_period_ms: float
+    autocorr_bit_period_ms: float
+    autocorr_bit_frequency_hz: float
+    frequency_estimator: str
     estimated_bit_period_ms: float
     estimated_bit_frequency_hz: float
 
@@ -299,6 +306,130 @@ def estimate_bit_period_s(
     return best_period_s
 
 
+def estimate_fft_frequency_hz(
+    y: np.ndarray,
+    bin_width_s: float,
+    nominal_frequency_hz: float,
+    min_scale: float = 0.25,
+    max_scale: float = 4.0,
+) -> float:
+    if y.size < 8 or not np.isfinite(bin_width_s) or bin_width_s <= 0 or nominal_frequency_hz <= 0:
+        return float("nan")
+
+    centered = y.astype(np.float64) - float(np.mean(y))
+    if not np.any(np.abs(centered) > 0):
+        return float("nan")
+
+    window = np.hanning(centered.size)
+    spectrum = np.abs(np.fft.rfft(centered * window))
+    freqs = np.fft.rfftfreq(centered.size, d=bin_width_s)
+    lo = max(1e-9, float(nominal_frequency_hz) * float(min_scale))
+    hi = max(lo * 1.1, float(nominal_frequency_hz) * float(max_scale))
+    mask = (freqs >= lo) & (freqs <= hi)
+    if not np.any(mask):
+        return float("nan")
+
+    masked_freqs = freqs[mask]
+    masked_spec = spectrum[mask]
+    # Prefer strong peaks near the nominal bitrate instead of harmonics at ~2x.
+    log_ratio = np.log(np.maximum(masked_freqs, 1e-12) / float(nominal_frequency_hz))
+    nominal_weight = np.exp(-0.5 * (log_ratio / 0.35) ** 2)
+    weighted_spec = masked_spec * nominal_weight
+    best_idx = int(np.argmax(weighted_spec))
+    return float(masked_freqs[best_idx])
+
+
+def estimate_autocorr_period_s(
+    y: np.ndarray,
+    bin_width_s: float,
+    nominal_frequency_hz: float,
+    coarse_frequency_hz: float,
+    min_scale: float = 0.25,
+    max_scale: float = 4.0,
+) -> float:
+    if y.size < 8 or not np.isfinite(bin_width_s) or bin_width_s <= 0 or nominal_frequency_hz <= 0:
+        return float("nan")
+
+    centered = y.astype(np.float64) - float(np.mean(y))
+    if not np.any(np.abs(centered) > 0):
+        return float("nan")
+
+    autocorr = np.correlate(centered, centered, mode="full")[centered.size - 1 :]
+    min_lag = max(1, int(np.floor(1.0 / (float(nominal_frequency_hz) * float(max_scale) * bin_width_s))))
+    max_lag = min(
+        autocorr.size - 2,
+        int(np.ceil(1.0 / (float(nominal_frequency_hz) * float(min_scale) * bin_width_s))),
+    )
+    if max_lag <= min_lag:
+        return float("nan")
+
+    if np.isfinite(coarse_frequency_hz) and coarse_frequency_hz > 0:
+        coarse_lag = 1.0 / (float(coarse_frequency_hz) * bin_width_s)
+        half_window = max(2.0, 0.5 * coarse_lag)
+        min_lag = max(min_lag, int(np.floor(coarse_lag - half_window)))
+        max_lag = min(max_lag, int(np.ceil(coarse_lag + half_window)))
+        if max_lag <= min_lag:
+            return float("nan")
+
+    search = autocorr[min_lag : max_lag + 1]
+    best_rel = int(np.argmax(search))
+    best_lag = int(min_lag + best_rel)
+    refined_lag = float(best_lag)
+    if 1 <= best_lag < (autocorr.size - 1):
+        y0 = float(autocorr[best_lag - 1])
+        y1 = float(autocorr[best_lag])
+        y2 = float(autocorr[best_lag + 1])
+        denom = (y0 - 2.0 * y1 + y2)
+        if abs(denom) > 1e-12:
+            delta = 0.5 * (y0 - y2) / denom
+            refined_lag += float(np.clip(delta, -1.0, 1.0))
+
+    if refined_lag <= 0:
+        return float("nan")
+    return float(refined_lag * bin_width_s)
+
+
+def estimate_trace_frequency(
+    counts: np.ndarray,
+    bin_width_s: float,
+    nominal_frequency_hz: float,
+) -> Tuple[float, float, float, float, str]:
+    fft_frequency_hz = estimate_fft_frequency_hz(
+        y=counts,
+        bin_width_s=bin_width_s,
+        nominal_frequency_hz=nominal_frequency_hz,
+    )
+    fft_period_s = 1.0 / fft_frequency_hz if np.isfinite(fft_frequency_hz) and fft_frequency_hz > 0 else float("nan")
+
+    autocorr_period_s = estimate_autocorr_period_s(
+        y=counts,
+        bin_width_s=bin_width_s,
+        nominal_frequency_hz=nominal_frequency_hz,
+        coarse_frequency_hz=fft_frequency_hz,
+    )
+    autocorr_frequency_hz = (
+        1.0 / autocorr_period_s if np.isfinite(autocorr_period_s) and autocorr_period_s > 0 else float("nan")
+    )
+
+    if np.isfinite(autocorr_frequency_hz) and autocorr_frequency_hz > 0:
+        return (
+            float(fft_frequency_hz),
+            float(fft_period_s),
+            float(autocorr_frequency_hz),
+            float(autocorr_period_s),
+            "fft_autocorr",
+        )
+    if np.isfinite(fft_frequency_hz) and fft_frequency_hz > 0:
+        return (
+            float(fft_frequency_hz),
+            float(fft_period_s),
+            float("nan"),
+            float("nan"),
+            "fft",
+        )
+    return float("nan"), float("nan"), float("nan"), float("nan"), "unavailable"
+
+
 def save_activity_plot(
     t_s: np.ndarray,
     counts: np.ndarray,
@@ -343,6 +474,7 @@ def save_roi_activity_plot(
     peaks_s: np.ndarray,
     estimated_period_s: float,
     nominal_period_s: float,
+    estimator: str,
     out_path: str,
 ) -> None:
     fig, ax = plt.subplots(figsize=(9.0, 4.5))
@@ -353,7 +485,10 @@ def save_roi_activity_plot(
         ax.scatter(t_s[peak_idx], counts[peak_idx], s=12, color="tab:red")
     title = f"ROI Activity Within Active Window (nominal={nominal_period_s*1e3:.3f} ms"
     if np.isfinite(estimated_period_s):
-        title += f", estimated={estimated_period_s*1e3:.3f} ms)"
+        title += f", estimated={estimated_period_s*1e3:.3f} ms"
+        if estimator:
+            title += f" via {estimator}"
+        title += ")"
     else:
         title += ")"
     ax.set_title(title)
@@ -484,7 +619,30 @@ def main() -> None:
         min_distance_s=max(args.transition_bin_us * 1e-6, args.peak_min_distance_fraction * nominal_period_s),
     )
     peak_dt_s = np.diff(peaks_s) if peaks_s.size > 1 else np.array([], dtype=np.float64)
-    estimated_period_s = estimate_bit_period_s(peak_dt_s, nominal_period_s)
+    peak_estimated_period_s = estimate_bit_period_s(peak_dt_s, nominal_period_s)
+    peak_estimated_frequency_hz = (
+        1.0 / peak_estimated_period_s
+        if np.isfinite(peak_estimated_period_s) and peak_estimated_period_s > 0
+        else float("nan")
+    )
+    (
+        fft_frequency_hz,
+        fft_period_s,
+        autocorr_frequency_hz,
+        autocorr_period_s,
+        frequency_estimator,
+    ) = estimate_trace_frequency(
+        counts=trace_counts_smoothed,
+        bin_width_s=args.transition_bin_us * 1e-6,
+        nominal_frequency_hz=float(nominal_frequency_hz),
+    )
+    if np.isfinite(autocorr_period_s):
+        estimated_period_s = float(autocorr_period_s)
+    elif np.isfinite(fft_period_s):
+        estimated_period_s = float(fft_period_s)
+    else:
+        estimated_period_s = float(peak_estimated_period_s)
+        frequency_estimator = "peak_fallback" if np.isfinite(estimated_period_s) else "unavailable"
     estimated_frequency_hz = 1.0 / estimated_period_s if np.isfinite(estimated_period_s) and estimated_period_s > 0 else float("nan")
 
     data_dir = os.path.join(root, "data", "replication_calibration")
@@ -513,6 +671,7 @@ def main() -> None:
         peaks_s,
         estimated_period_s,
         nominal_period_s,
+        frequency_estimator,
         roi_activity_path,
     )
 
@@ -537,6 +696,13 @@ def main() -> None:
         peak_count=int(peaks_s.size),
         peak_height_threshold=float(peak_threshold),
         median_peak_dt_ms=float(np.median(peak_dt_s) * 1e3) if peak_dt_s.size else float("nan"),
+        peak_estimated_bit_period_ms=float(peak_estimated_period_s * 1e3) if np.isfinite(peak_estimated_period_s) else float("nan"),
+        peak_estimated_bit_frequency_hz=float(peak_estimated_frequency_hz),
+        fft_peak_frequency_hz=float(fft_frequency_hz),
+        fft_peak_period_ms=float(fft_period_s * 1e3) if np.isfinite(fft_period_s) else float("nan"),
+        autocorr_bit_period_ms=float(autocorr_period_s * 1e3) if np.isfinite(autocorr_period_s) else float("nan"),
+        autocorr_bit_frequency_hz=float(autocorr_frequency_hz),
+        frequency_estimator=str(frequency_estimator),
         estimated_bit_period_ms=float(estimated_period_s * 1e3) if np.isfinite(estimated_period_s) else float("nan"),
         estimated_bit_frequency_hz=float(estimated_frequency_hz),
     )
@@ -569,6 +735,7 @@ def main() -> None:
             "Estimated transition timing:"
             f" period={summary.estimated_bit_period_ms:.3f} ms"
             f" frequency={summary.estimated_bit_frequency_hz:.3f} Hz"
+            f" source={summary.frequency_estimator}"
         )
     else:
         print("Estimated transition timing: not enough peaks to estimate a bit period.")

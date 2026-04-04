@@ -76,6 +76,9 @@ class CalibrationEntry:
     roi_x1: int
     roi_y1: int
     estimated_bit_frequency_hz: float
+    frequency_estimator: str
+    fft_peak_frequency_hz: float
+    autocorr_bit_frequency_hz: float
 
 
 def load_frequency_map_csv(path: str) -> Dict[str, float]:
@@ -143,8 +146,25 @@ def load_calibration_summaries(calibration_dir: str) -> Dict[str, CalibrationEnt
                     roi_x1=int(row["roi_x1"]),
                     roi_y1=int(row["roi_y1"]),
                     estimated_bit_frequency_hz=float(row["estimated_bit_frequency_hz"]),
+                    frequency_estimator=row.get("frequency_estimator", "").strip(),
+                    fft_peak_frequency_hz=float(row.get("fft_peak_frequency_hz", "nan") or "nan"),
+                    autocorr_bit_frequency_hz=float(row.get("autocorr_bit_frequency_hz", "nan") or "nan"),
                 )
     return entries
+
+
+def choose_calibrated_symbol_rate(entry: CalibrationEntry) -> tuple[float, str]:
+    candidates = [
+        ("estimated", entry.estimated_bit_frequency_hz),
+        ("autocorr", entry.autocorr_bit_frequency_hz),
+        ("fft", entry.fft_peak_frequency_hz),
+    ]
+    for source, value in candidates:
+        if np.isfinite(value) and value > 0:
+            if source == "estimated" and entry.frequency_estimator:
+                return float(value), f"calibration_{entry.frequency_estimator}"
+            return float(value), f"calibration_{source}"
+    return float("nan"), "calibration_unavailable"
 
 
 def load_transmission_manifest(path: str) -> Dict[float, ManifestEntry]:
@@ -692,6 +712,7 @@ class FileResult:
     raw_file: str
     frequency_hz: float
     symbol_rate_hz: float
+    symbol_rate_source: str
     decode_rate_hz: float
     capture_events: int
     loaded_events: int
@@ -1018,13 +1039,17 @@ def main() -> None:
 
         manifest_entry = lookup_manifest_entry(manifest, float(frequency_hz))
         calibration_entry = calibration.get(raw_file)
-        symbol_rate_hz = (
-            float(calibration_entry.estimated_bit_frequency_hz)
-            if calibration_entry is not None and args.use_calibrated_frequency and np.isfinite(calibration_entry.estimated_bit_frequency_hz) and calibration_entry.estimated_bit_frequency_hz > 0
-            else float(manifest_entry.actual_frequency_hz)
-            if manifest_entry is not None
-            else float(frequency_hz * args.symbol_rate_scale)
-        )
+        symbol_rate_hz = float("nan")
+        symbol_rate_source = "unresolved"
+        if calibration_entry is not None and args.use_calibrated_frequency:
+            symbol_rate_hz, symbol_rate_source = choose_calibrated_symbol_rate(calibration_entry)
+        if not np.isfinite(symbol_rate_hz) or symbol_rate_hz <= 0:
+            if manifest_entry is not None:
+                symbol_rate_hz = float(manifest_entry.actual_frequency_hz)
+                symbol_rate_source = "manifest_actual"
+            else:
+                symbol_rate_hz = float(frequency_hz * args.symbol_rate_scale)
+                symbol_rate_source = "filename_scaled"
 
         roi: Optional[tuple[int, int, int, int]] = None
         roi_source = "full_frame"
@@ -1118,6 +1143,7 @@ def main() -> None:
             raw_file=raw_file,
             frequency_hz=float(frequency_hz),
             symbol_rate_hz=symbol_rate_hz,
+            symbol_rate_source=symbol_rate_source,
             decode_rate_hz=float(best.decode_rate_hz),
             capture_events=int(capture_events),
             loaded_events=int(loaded_events),
@@ -1176,6 +1202,7 @@ def main() -> None:
             f"roi={roi_source} "
             f"mode={args.decode_mode} "
             f"rate={best.decode_rate_hz:.1f}Hz "
+            f"ratesrc={symbol_rate_source} "
             f"window={analysis_start_s:.3f}-{analysis_end_s:.3f}s "
             f"messages={best.n_messages} "
             f"MAR={best.mar:.3f} "
@@ -1193,6 +1220,7 @@ def main() -> None:
             "raw_file",
             "frequency_hz",
             "symbol_rate_hz",
+            "symbol_rate_source",
             "decode_rate_hz",
             "capture_events",
             "loaded_events",
