@@ -2,6 +2,7 @@ import argparse
 import csv
 import os
 import re
+import sys
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
@@ -12,7 +13,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from metavision_core.event_io import EventsIterator
 
-from io_utils import repo_root_from_this_file
+THIS_DIR = os.path.abspath(os.path.dirname(__file__))
+SRC_DIR = os.path.abspath(os.path.join(THIS_DIR, ".."))
+REPO_ROOT = os.path.abspath(os.path.join(SRC_DIR, ".."))
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
 
 
 # ----------------------------
@@ -79,6 +84,16 @@ class CalibrationEntry:
     frequency_estimator: str
     fft_peak_frequency_hz: float
     autocorr_bit_frequency_hz: float
+
+
+def is_valid_frequency_hz(value: float) -> bool:
+    return bool(np.isfinite(value) and value > 0)
+
+
+def relative_frequency_error(value_hz: float, target_hz: float) -> float:
+    if not is_valid_frequency_hz(value_hz) or not is_valid_frequency_hz(target_hz):
+        return float("inf")
+    return float(abs(value_hz - target_hz) / max(abs(target_hz), 1e-9))
 
 
 def load_frequency_map_csv(path: str) -> Dict[str, float]:
@@ -153,17 +168,48 @@ def load_calibration_summaries(calibration_dir: str) -> Dict[str, CalibrationEnt
     return entries
 
 
-def choose_calibrated_symbol_rate(entry: CalibrationEntry) -> tuple[float, str]:
-    candidates = [
-        ("estimated", entry.estimated_bit_frequency_hz),
-        ("autocorr", entry.autocorr_bit_frequency_hz),
-        ("fft", entry.fft_peak_frequency_hz),
-    ]
-    for source, value in candidates:
-        if np.isfinite(value) and value > 0:
-            if source == "estimated" and entry.frequency_estimator:
-                return float(value), f"calibration_{entry.frequency_estimator}"
-            return float(value), f"calibration_{source}"
+def choose_calibrated_symbol_rate(
+    entry: CalibrationEntry,
+    manifest_entry: Optional[ManifestEntry] = None,
+    max_disagreement_fraction: float = 0.12,
+    max_target_error_fraction: float = 0.15,
+) -> tuple[float, str]:
+    target_frequency_hz = (
+        float(manifest_entry.actual_frequency_hz)
+        if manifest_entry is not None
+        else float(entry.nominal_frequency_hz)
+    )
+    fft_hz = float(entry.fft_peak_frequency_hz)
+    autocorr_hz = float(entry.autocorr_bit_frequency_hz)
+    estimated_hz = float(entry.estimated_bit_frequency_hz)
+
+    if is_valid_frequency_hz(fft_hz) and is_valid_frequency_hz(autocorr_hz):
+        disagreement = float(abs(fft_hz - autocorr_hz) / max(abs(fft_hz), abs(autocorr_hz), 1e-9))
+        if disagreement > max_disagreement_fraction:
+            if relative_frequency_error(fft_hz, target_frequency_hz) <= max_target_error_fraction:
+                return float(fft_hz), "calibration_fft_disagreement_fallback"
+            return float("nan"), "calibration_disagreement_fallback"
+
+    candidates = []
+    for source, value in (
+        ("estimated", estimated_hz),
+        ("autocorr", autocorr_hz),
+        ("fft", fft_hz),
+    ):
+        if not is_valid_frequency_hz(value):
+            continue
+        error = relative_frequency_error(value, target_frequency_hz)
+        if np.isfinite(error) and error > max_target_error_fraction:
+            continue
+        source_rank = {"fft": 0, "estimated": 1, "autocorr": 2}.get(source, 3)
+        candidates.append((error, source_rank, source, value))
+
+    if candidates:
+        _, _, source, value = min(candidates, key=lambda item: (item[0], item[1]))
+        if source == "estimated" and entry.frequency_estimator:
+            return float(value), f"calibration_{entry.frequency_estimator}"
+        return float(value), f"calibration_{source}"
+
     return float("nan"), "calibration_unavailable"
 
 
@@ -365,6 +411,18 @@ def find_manifest_analysis_window(
     return float(analysis_start_s), float(analysis_end_s)
 
 
+def cap_window_end_s(
+    window_start_s: float,
+    window_end_s: float,
+    expected_duration_s: float,
+    capture_end_s: float,
+) -> float:
+    capped_end_s = float(min(window_end_s, capture_end_s))
+    if not np.isfinite(expected_duration_s) or expected_duration_s <= 0:
+        return capped_end_s
+    return float(min(capped_end_s, window_start_s + expected_duration_s))
+
+
 def binned_activity(time_s: np.ndarray, bin_width_s: float, duration_s: float) -> tuple[np.ndarray, np.ndarray]:
     if duration_s <= 0 or bin_width_s <= 0:
         return np.array([], dtype=np.float64), np.array([], dtype=np.float64)
@@ -435,6 +493,19 @@ def compare_candidates(current: Optional["CandidateResult"], challenger: "Candid
     if challenger_ber != current_ber:
         return challenger_ber < current_ber
 
+    current_count_error = (
+        abs(int(current.n_messages_available) - int(current.expected_message_count))
+        if current.expected_message_count > 0
+        else 0
+    )
+    challenger_count_error = (
+        abs(int(challenger.n_messages_available) - int(challenger.expected_message_count))
+        if challenger.expected_message_count > 0
+        else 0
+    )
+    if challenger_count_error != current_count_error:
+        return challenger_count_error < current_count_error
+
     if challenger.n_messages != current.n_messages:
         return challenger.n_messages > current.n_messages
 
@@ -453,6 +524,8 @@ class CandidateResult:
     threshold: float
     n_symbols_total: int
     n_symbols_scored: int
+    n_messages_available: int
+    expected_message_count: int
     n_messages: int
     n_correct_messages: int
     mar: float
@@ -461,11 +534,67 @@ class CandidateResult:
     decoded_bits: np.ndarray
 
 
+def score_decoded_messages(
+    decoded_messages: np.ndarray,
+    truth_message_bits: np.ndarray,
+    expected_message_count: Optional[int],
+) -> Optional[tuple[np.ndarray, int, int, int, int, int, float, float]]:
+    n_messages_available = int(decoded_messages.shape[0])
+    if n_messages_available <= 0:
+        return None
+
+    truth_messages = truth_message_bits[np.newaxis, :]
+    message_bit_errors = np.sum(decoded_messages != truth_messages, axis=1).astype(np.int64)
+    message_correct = (message_bit_errors == 0).astype(np.int64)
+
+    if expected_message_count is not None and expected_message_count > 0:
+        n_messages = int(expected_message_count)
+        if n_messages_available < n_messages:
+            return None
+
+        cumulative_correct = np.concatenate(([0], np.cumsum(message_correct, dtype=np.int64)))
+        cumulative_errors = np.concatenate(([0], np.cumsum(message_bit_errors, dtype=np.int64)))
+        window_correct = cumulative_correct[n_messages:] - cumulative_correct[:-n_messages]
+        window_errors = cumulative_errors[n_messages:] - cumulative_errors[:-n_messages]
+
+        best_correct = int(np.max(window_correct))
+        candidate_starts = np.where(window_correct == best_correct)[0]
+        if candidate_starts.size > 1:
+            best_error = int(np.min(window_errors[candidate_starts]))
+            candidate_starts = candidate_starts[window_errors[candidate_starts] == best_error]
+        best_start = int(candidate_starts[0])
+        best_end = best_start + n_messages
+        scored_messages = decoded_messages[best_start:best_end]
+        n_correct_messages = best_correct
+        n_bit_errors = int(window_errors[best_start])
+    else:
+        best_start = 0
+        scored_messages = decoded_messages
+        n_messages = n_messages_available
+        n_correct_messages = int(np.sum(message_correct))
+        n_bit_errors = int(np.sum(message_bit_errors))
+
+    scored_bits = scored_messages.reshape(-1).astype(np.uint8)
+    mar = float(n_correct_messages / n_messages) if n_messages > 0 else float("nan")
+    ber = float(n_bit_errors / scored_bits.size) if scored_bits.size > 0 else float("nan")
+    return (
+        scored_bits,
+        n_messages_available,
+        best_start,
+        n_messages,
+        n_correct_messages,
+        n_bit_errors,
+        mar,
+        ber,
+    )
+
+
 def score_symbol_stream(
     sym_sums: np.ndarray,
     truth_message_bits: np.ndarray,
     phase_s: float,
     decode_rate_hz: float,
+    expected_message_count: Optional[int],
 ) -> Optional[CandidateResult]:
     if sym_sums.size < truth_message_bits.size:
         return None
@@ -482,36 +611,46 @@ def score_symbol_stream(
         # Drop the partial prefix so the remaining bitstream can be reshaped into full messages.
         drop = (message_len - offset) % message_len
         usable = decoded_bits[drop:]
-        n_messages = int(usable.size // message_len)
-        if n_messages <= 0:
+        n_messages_available = int(usable.size // message_len)
+        if n_messages_available <= 0:
             continue
 
-        usable = usable[: n_messages * message_len]
-        # Compare the repeated decoded message stream against the repeated truth message.
-        truth_repeated = np.tile(truth_message_bits, n_messages)
-        n_bit_errors = int(np.sum(usable != truth_repeated))
-        ber = float(n_bit_errors / usable.size) if usable.size > 0 else float("nan")
-
-        decoded_messages = usable.reshape(n_messages, message_len)
-        truth_messages = np.tile(truth_message_bits, (n_messages, 1))
-        correct_messages = np.all(decoded_messages == truth_messages, axis=1)
-        n_correct_messages = int(np.sum(correct_messages))
-        mar = float(n_correct_messages / n_messages) if n_messages > 0 else float("nan")
+        usable = usable[: n_messages_available * message_len]
+        decoded_messages = usable.reshape(n_messages_available, message_len)
+        scored = score_decoded_messages(
+            decoded_messages=decoded_messages,
+            truth_message_bits=truth_message_bits,
+            expected_message_count=expected_message_count,
+        )
+        if scored is None:
+            continue
+        (
+            scored_bits,
+            n_messages_available,
+            message_start_index,
+            n_messages,
+            n_correct_messages,
+            n_bit_errors,
+            mar,
+            ber,
+        ) = scored
 
         candidate = CandidateResult(
             decode_rate_hz=float(decode_rate_hz),
             phase_s=float(phase_s),
-            message_offset_bits=int(offset),
+            message_offset_bits=int(drop + message_start_index * message_len),
             init_bit=int(decoded_bits[0]) if decoded_bits.size else 0,
             threshold=float(threshold),
             n_symbols_total=int(decoded_bits.size),
-            n_symbols_scored=int(usable.size),
+            n_symbols_scored=int(scored_bits.size),
+            n_messages_available=int(n_messages_available),
+            expected_message_count=int(expected_message_count) if expected_message_count is not None else 0,
             n_messages=n_messages,
             n_correct_messages=n_correct_messages,
             mar=mar,
             n_bit_errors=n_bit_errors,
             ber=ber,
-            decoded_bits=usable.copy(),
+            decoded_bits=scored_bits.copy(),
         )
 
         if compare_candidates(best, candidate):
@@ -527,6 +666,7 @@ def search_best_decode(
     symbol_rate_hz: float,
     truth_message_bits: np.ndarray,
     phase_steps: int,
+    expected_message_count: Optional[int],
 ) -> Optional[CandidateResult]:
     if phase_steps <= 0:
         raise ValueError("phase_steps must be > 0")
@@ -551,6 +691,7 @@ def search_best_decode(
             truth_message_bits=truth_message_bits,
             phase_s=float(phase_s),
             decode_rate_hz=float(symbol_rate_hz),
+            expected_message_count=expected_message_count,
         )
         if candidate is not None and compare_candidates(best, candidate):
             best = candidate
@@ -594,6 +735,7 @@ def score_transition_stream(
     truth_message_bits: np.ndarray,
     phase_s: float,
     decode_rate_hz: float,
+    expected_message_count: Optional[int],
 ) -> Optional[CandidateResult]:
     if boundary_counts.size + 1 < truth_message_bits.size:
         return None
@@ -614,35 +756,46 @@ def score_transition_stream(
 
         for offset in range(message_len):
             usable = decoded_bits[offset:]
-            n_messages = int(usable.size // message_len)
-            if n_messages <= 0:
+            n_messages_available = int(usable.size // message_len)
+            if n_messages_available <= 0:
                 continue
 
-            usable = usable[: n_messages * message_len]
-            truth_repeated = np.tile(truth_message_bits, n_messages)
-            n_bit_errors = int(np.sum(usable != truth_repeated))
-            ber = float(n_bit_errors / usable.size) if usable.size > 0 else float("nan")
-
-            decoded_messages = usable.reshape(n_messages, message_len)
-            truth_messages = np.tile(truth_message_bits, (n_messages, 1))
-            correct_messages = np.all(decoded_messages == truth_messages, axis=1)
-            n_correct_messages = int(np.sum(correct_messages))
-            mar = float(n_correct_messages / n_messages) if n_messages > 0 else float("nan")
+            usable = usable[: n_messages_available * message_len]
+            decoded_messages = usable.reshape(n_messages_available, message_len)
+            scored = score_decoded_messages(
+                decoded_messages=decoded_messages,
+                truth_message_bits=truth_message_bits,
+                expected_message_count=expected_message_count,
+            )
+            if scored is None:
+                continue
+            (
+                scored_bits,
+                n_messages_available,
+                message_start_index,
+                n_messages,
+                n_correct_messages,
+                n_bit_errors,
+                mar,
+                ber,
+            ) = scored
 
             candidate = CandidateResult(
                 decode_rate_hz=float(decode_rate_hz),
                 phase_s=float(phase_s),
-                message_offset_bits=int(offset),
+                message_offset_bits=int(offset + message_start_index * message_len),
                 init_bit=int(init_bit),
                 threshold=float(threshold),
                 n_symbols_total=int(decoded_bits.size),
-                n_symbols_scored=int(usable.size),
+                n_symbols_scored=int(scored_bits.size),
+                n_messages_available=int(n_messages_available),
+                expected_message_count=int(expected_message_count) if expected_message_count is not None else 0,
                 n_messages=n_messages,
                 n_correct_messages=n_correct_messages,
                 mar=mar,
                 n_bit_errors=n_bit_errors,
                 ber=ber,
-                decoded_bits=usable.copy(),
+                decoded_bits=scored_bits.copy(),
             )
             if compare_candidates(best, candidate):
                 best = candidate
@@ -661,6 +814,7 @@ def search_best_transition_decode(
     rate_max_scale: float,
     rate_steps: int,
     edge_window_fraction: float,
+    expected_message_count: Optional[int],
 ) -> Optional[CandidateResult]:
     if phase_steps <= 0:
         raise ValueError("phase_steps must be > 0")
@@ -697,6 +851,7 @@ def search_best_transition_decode(
                 truth_message_bits=truth_message_bits,
                 phase_s=float(phase_s),
                 decode_rate_hz=float(decode_rate_hz),
+                expected_message_count=expected_message_count,
             )
             if candidate is not None and compare_candidates(best, candidate):
                 best = candidate
@@ -739,6 +894,8 @@ class FileResult:
     message_offset_bits: int
     n_symbols_total: int
     n_symbols_scored: int
+    n_messages_available: int
+    expected_message_count: int
     n_messages: int
     n_correct_messages: int
     mar: float
@@ -829,10 +986,10 @@ def save_ber_plot(rows: List[dict], out_path: str) -> None:
 # Main
 # ----------------------------
 def main() -> None:
-    root = repo_root_from_this_file(__file__)
+    root = REPO_ROOT
     default_input_dir = os.path.abspath(os.path.join(root, "..", "captures", "experiment_replication_3_1"))
     default_manifest_csv = os.path.join(root, "pru1_pwm_CSK_1000Hz", "userspace", "s31_replication_manifest.csv")
-    default_calibration_dir = os.path.join(root, "data", "replication_calibration")
+    default_calibration_dir = os.path.join(root, "data", "3.1", "replication_calibration")
 
     ap = argparse.ArgumentParser(
         description="Analyze the Section 3.1 frequency-sweep replication experiment and compute MAR/BER."
@@ -1009,8 +1166,8 @@ def main() -> None:
         else {}
     )
 
-    data_dir = os.path.join(root, "data", "replication")
-    plot_dir = os.path.join(root, "plots", "replication")
+    data_dir = os.path.join(root, "data", "3.1", "replication")
+    plot_dir = os.path.join(root, "plots", "3.1", "replication")
     os.makedirs(data_dir, exist_ok=True)
     if not args.no_plot:
         os.makedirs(plot_dir, exist_ok=True)
@@ -1042,7 +1199,10 @@ def main() -> None:
         symbol_rate_hz = float("nan")
         symbol_rate_source = "unresolved"
         if calibration_entry is not None and args.use_calibrated_frequency:
-            symbol_rate_hz, symbol_rate_source = choose_calibrated_symbol_rate(calibration_entry)
+            symbol_rate_hz, symbol_rate_source = choose_calibrated_symbol_rate(
+                calibration_entry,
+                manifest_entry=manifest_entry,
+            )
         if not np.isfinite(symbol_rate_hz) or symbol_rate_hz <= 0:
             if manifest_entry is not None:
                 symbol_rate_hz = float(manifest_entry.actual_frequency_hz)
@@ -1071,9 +1231,20 @@ def main() -> None:
         capture_duration_s = float((capture_end_us - capture_start_us) * 1e-6)
         if calibration_entry is not None:
             analysis_start_s = float(calibration_entry.active_start_s + args.trim_start_s)
-            analysis_end_s = float(calibration_entry.active_end_s - args.trim_end_s)
-            expected_transmit_duration_s = float(calibration_entry.active_duration_s)
-            active_window_source = "calibration_summary"
+            if manifest_entry is not None:
+                expected_transmit_duration_s = float(manifest_entry.duration_s)
+                capped_window_end_s = cap_window_end_s(
+                    window_start_s=float(calibration_entry.active_start_s),
+                    window_end_s=float(calibration_entry.active_end_s),
+                    expected_duration_s=expected_transmit_duration_s,
+                    capture_end_s=capture_duration_s,
+                )
+                analysis_end_s = float(capped_window_end_s - args.trim_end_s)
+                active_window_source = "calibration_summary_manifest_cap"
+            else:
+                analysis_end_s = float(calibration_entry.active_end_s - args.trim_end_s)
+                expected_transmit_duration_s = float(calibration_entry.active_duration_s)
+                active_window_source = "calibration_summary"
         elif manifest_entry is not None:
             auto_window_start_s, auto_window_end_s = find_manifest_analysis_window(
                 ts_rel_s=ts_rel_s,
@@ -1103,6 +1274,7 @@ def main() -> None:
             )
 
         events_per_s = float(trimmed_times_s.size / duration_s) if duration_s > 0 else float("nan")
+        expected_message_count = int(manifest_entry.message_repeats) if manifest_entry is not None else None
         # Bin the event stream so symbol windows can be integrated efficiently.
         t_bins, counts = binned_activity(
             time_s=trimmed_times_s,
@@ -1122,6 +1294,7 @@ def main() -> None:
                 rate_max_scale=args.transition_rate_max_scale,
                 rate_steps=args.transition_rate_steps,
                 edge_window_fraction=args.edge_window_fraction,
+                expected_message_count=expected_message_count,
             )
         else:
             best = search_best_decode(
@@ -1131,6 +1304,7 @@ def main() -> None:
                 symbol_rate_hz=symbol_rate_hz,
                 truth_message_bits=truth_message_bits,
                 phase_steps=args.phase_steps,
+                expected_message_count=expected_message_count,
             )
         if best is None:
             raise RuntimeError(
@@ -1170,6 +1344,8 @@ def main() -> None:
             message_offset_bits=int(best.message_offset_bits),
             n_symbols_total=int(best.n_symbols_total),
             n_symbols_scored=int(best.n_symbols_scored),
+            n_messages_available=int(best.n_messages_available),
+            expected_message_count=int(expected_message_count) if expected_message_count is not None else 0,
             n_messages=int(best.n_messages),
             n_correct_messages=int(best.n_correct_messages),
             mar=float(best.mar),
@@ -1204,6 +1380,7 @@ def main() -> None:
             f"rate={best.decode_rate_hz:.1f}Hz "
             f"ratesrc={symbol_rate_source} "
             f"window={analysis_start_s:.3f}-{analysis_end_s:.3f}s "
+            f"available={best.n_messages_available} "
             f"messages={best.n_messages} "
             f"MAR={best.mar:.3f} "
             f"BER={best.ber:.4f}"
@@ -1247,6 +1424,8 @@ def main() -> None:
             "message_offset_bits",
             "n_symbols_total",
             "n_symbols_scored",
+            "n_messages_available",
+            "expected_message_count",
             "n_messages",
             "n_correct_messages",
             "mar",

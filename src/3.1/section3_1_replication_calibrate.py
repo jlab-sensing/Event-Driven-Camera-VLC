@@ -2,8 +2,9 @@ import argparse
 import csv
 import os
 import re
+import sys
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib
 
@@ -12,7 +13,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from metavision_core.event_io import EventsIterator
 
-from io_utils import repo_root_from_this_file
+THIS_DIR = os.path.abspath(os.path.dirname(__file__))
+SRC_DIR = os.path.abspath(os.path.join(THIS_DIR, ".."))
+REPO_ROOT = os.path.abspath(os.path.join(SRC_DIR, ".."))
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
 
 
 def parse_numeric_token(token: str) -> float:
@@ -27,6 +32,13 @@ def extract_frequency_from_name(filename: str, pattern: str) -> Optional[float]:
         return parse_numeric_token(match.group(1))
     except Exception:
         return None
+
+
+@dataclass
+class ManifestEntry:
+    requested_frequency_hz: float
+    actual_frequency_hz: float
+    duration_s: float
 
 
 @dataclass
@@ -52,6 +64,9 @@ class RoiBox:
 class CalibrationSummary:
     raw_file: str
     nominal_frequency_hz: float
+    expected_frequency_hz: float
+    manifest_duration_s: float
+    manifest_source: str
     capture_duration_s: float
     active_start_s: float
     active_end_s: float
@@ -79,6 +94,135 @@ class CalibrationSummary:
     frequency_estimator: str
     estimated_bit_period_ms: float
     estimated_bit_frequency_hz: float
+
+
+def is_valid_frequency_hz(value: float) -> bool:
+    return bool(np.isfinite(value) and value > 0)
+
+
+def relative_frequency_error(value_hz: float, target_hz: float) -> float:
+    if not is_valid_frequency_hz(value_hz) or not is_valid_frequency_hz(target_hz):
+        return float("inf")
+    return float(abs(value_hz - target_hz) / max(abs(target_hz), 1e-9))
+
+
+def load_manifest_csv(path: str) -> Dict[float, ManifestEntry]:
+    manifest: Dict[float, ManifestEntry] = {}
+    with open(path, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None:
+            raise ValueError(f"Manifest CSV is missing a header row: {path}")
+
+        required = {"requested_frequency_hz", "actual_frequency_hz", "duration_s"}
+        missing = sorted(required - set(reader.fieldnames))
+        if missing:
+            raise ValueError(f"Manifest CSV {path} is missing required columns: {', '.join(missing)}")
+
+        for row in reader:
+            requested_text = str(row.get("requested_frequency_hz", "")).strip()
+            actual_text = str(row.get("actual_frequency_hz", "")).strip()
+            duration_text = str(row.get("duration_s", "")).strip()
+            if not requested_text or not actual_text or not duration_text:
+                continue
+
+            requested_frequency_hz = float(requested_text)
+            manifest[requested_frequency_hz] = ManifestEntry(
+                requested_frequency_hz=requested_frequency_hz,
+                actual_frequency_hz=float(actual_text),
+                duration_s=float(duration_text),
+            )
+
+    return manifest
+
+
+def lookup_manifest_entry(
+    manifest: Dict[float, ManifestEntry],
+    requested_frequency_hz: float,
+    tolerance_fraction: float = 0.02,
+) -> Optional[ManifestEntry]:
+    best: Optional[ManifestEntry] = None
+    best_error = float("inf")
+    for entry in manifest.values():
+        err = relative_frequency_error(entry.requested_frequency_hz, requested_frequency_hz)
+        if err < best_error:
+            best = entry
+            best_error = err
+    if best is None or best_error > tolerance_fraction:
+        return None
+    return best
+
+
+def choose_manifest_entry_for_raw(
+    raw_file: str,
+    nominal_frequency_hz: float,
+    replication_manifest: Dict[float, ManifestEntry],
+    alt_manifest: Dict[float, ManifestEntry],
+) -> Tuple[Optional[ManifestEntry], str]:
+    lower_name = raw_file.lower()
+    preferred: List[Tuple[str, Dict[float, ManifestEntry]]] = []
+    fallback: List[Tuple[str, Dict[float, ManifestEntry]]] = []
+
+    if lower_name.startswith("s31_replication"):
+        preferred.append(("replication_manifest", replication_manifest))
+        fallback.append(("alt_manifest", alt_manifest))
+    elif lower_name.startswith("s31_cal"):
+        preferred.append(("alt_manifest", alt_manifest))
+        fallback.append(("replication_manifest", replication_manifest))
+    else:
+        preferred.extend(
+            [
+                ("replication_manifest", replication_manifest),
+                ("alt_manifest", alt_manifest),
+            ]
+        )
+
+    for source_name, manifest in preferred + fallback:
+        if not manifest:
+            continue
+        entry = lookup_manifest_entry(manifest, nominal_frequency_hz)
+        if entry is not None:
+            return entry, source_name
+
+    return None, "none"
+
+
+def choose_estimated_frequency_hz(
+    nominal_frequency_hz: float,
+    expected_frequency_hz: float,
+    fft_frequency_hz: float,
+    autocorr_frequency_hz: float,
+    peak_frequency_hz: float,
+    max_disagreement_fraction: float = 0.12,
+    max_target_error_fraction: float = 0.15,
+) -> Tuple[float, str]:
+    target_hz = float(expected_frequency_hz if is_valid_frequency_hz(expected_frequency_hz) else nominal_frequency_hz)
+    valid_candidates = [
+        ("autocorr", float(autocorr_frequency_hz)),
+        ("fft", float(fft_frequency_hz)),
+        ("peak", float(peak_frequency_hz)),
+    ]
+    valid_candidates = [(label, freq) for label, freq in valid_candidates if is_valid_frequency_hz(freq)]
+
+    if is_valid_frequency_hz(fft_frequency_hz) and is_valid_frequency_hz(autocorr_frequency_hz):
+        disagreement = relative_frequency_error(float(autocorr_frequency_hz), float(fft_frequency_hz))
+        if disagreement > max_disagreement_fraction:
+            ordered = sorted(valid_candidates, key=lambda item: relative_frequency_error(item[1], target_hz))
+            if ordered and relative_frequency_error(ordered[0][1], target_hz) <= max_target_error_fraction:
+                return float(ordered[0][1]), f"{ordered[0][0]}_disagreement_resolved"
+            fallback_source = "manifest_fallback" if is_valid_frequency_hz(expected_frequency_hz) else "nominal_fallback"
+            return float(target_hz), fallback_source
+
+    if valid_candidates:
+        ordered = sorted(valid_candidates, key=lambda item: relative_frequency_error(item[1], target_hz))
+        best_label, best_frequency_hz = ordered[0]
+        if relative_frequency_error(best_frequency_hz, target_hz) <= max_target_error_fraction:
+            return float(best_frequency_hz), f"{best_label}_preferred"
+
+    if is_valid_frequency_hz(target_hz):
+        fallback_source = "manifest_fallback" if is_valid_frequency_hz(expected_frequency_hz) else "nominal_fallback"
+        return float(target_hz), fallback_source
+
+    return float("nan"), "unavailable"
 
 
 def scan_capture_metadata(raw_path: str) -> Tuple[int, int, int, int]:
@@ -132,9 +276,11 @@ def detect_activity_window(
     capture_end_us: int,
     bin_width_ms: float,
     threshold_sigma: float,
+    expected_duration_s: float = float("nan"),
 ) -> ActivityWindow:
     bin_width_us = int(round(bin_width_ms * 1000.0))
     counts = accumulate_time_hist(raw_path, capture_start_us, capture_end_us + 1, bin_width_us)
+    capture_duration_s = float((capture_end_us - capture_start_us) * 1e-6)
     n_baseline = max(3, len(counts) // 10)
     baseline = counts[:n_baseline].astype(np.float64)
     threshold = float(np.median(baseline) + threshold_sigma * np.std(baseline))
@@ -142,7 +288,12 @@ def detect_activity_window(
     if not np.any(active):
         top_idx = int(np.argmax(counts))
         start_s = top_idx * bin_width_us * 1e-6
-        end_s = min((top_idx + 1) * bin_width_us * 1e-6, (capture_end_us - capture_start_us) * 1e-6)
+        fallback_duration_s = (
+            float(expected_duration_s)
+            if np.isfinite(expected_duration_s) and expected_duration_s > 0
+            else bin_width_us * 1e-6
+        )
+        end_s = min(start_s + fallback_duration_s, capture_duration_s)
         return ActivityWindow(start_s=start_s, end_s=end_s, duration_s=end_s - start_s, threshold=threshold)
 
     idx = np.where(active)[0]
@@ -150,7 +301,9 @@ def detect_activity_window(
     groups = np.split(idx, splits)
     best_group = max(groups, key=lambda g: (int(np.sum(counts[g])), int(g.size)))
     start_s = float(best_group[0] * bin_width_us * 1e-6)
-    end_s = float(min((best_group[-1] + 1) * bin_width_us * 1e-6, (capture_end_us - capture_start_us) * 1e-6))
+    end_s = float(min((best_group[-1] + 1) * bin_width_us * 1e-6, capture_duration_s))
+    if np.isfinite(expected_duration_s) and expected_duration_s > 0:
+        end_s = float(min(end_s, start_s + float(expected_duration_s), capture_duration_s))
     return ActivityWindow(start_s=start_s, end_s=end_s, duration_s=end_s - start_s, threshold=threshold)
 
 
@@ -501,10 +654,12 @@ def save_roi_activity_plot(
 
 
 def main() -> None:
-    root = repo_root_from_this_file(__file__)
+    root = REPO_ROOT
     default_raw = os.path.abspath(
         os.path.join(root, "..", "captures", "experiment_replication_3_1", "s31_replication_500Hz_t1.raw")
     )
+    default_replication_manifest_csv = os.path.join(root, "pru1_pwm_CSK_1000Hz", "userspace", "s31_replication_manifest.csv")
+    default_alt_manifest_csv = os.path.join(root, "pru1_pwm_CSK_1000Hz", "userspace", "s31_cal_alt_manifest.csv")
     ap = argparse.ArgumentParser(
         description="Calibrate one Section 3.1 replication capture by estimating the active transmit window, LED ROI, and observed transition timing."
     )
@@ -526,6 +681,16 @@ def main() -> None:
         type=float,
         default=5.0,
         help="Threshold = median(baseline) + sigma * std(baseline) for selecting the active window.",
+    )
+    ap.add_argument(
+        "--replication_manifest_csv",
+        default=default_replication_manifest_csv,
+        help="Manifest CSV for the repeated-message replication sweep.",
+    )
+    ap.add_argument(
+        "--alt_manifest_csv",
+        default=default_alt_manifest_csv,
+        help="Manifest CSV for the alternating-bit calibration captures.",
     )
     ap.add_argument("--block_px", type=int, default=32, help="Spatial block size in pixels for ROI contrast mapping.")
     ap.add_argument("--roi_blocks", type=int, default=4, help="ROI width/height in coarse blocks.")
@@ -566,6 +731,27 @@ def main() -> None:
     if nominal_frequency_hz is None or nominal_frequency_hz <= 0:
         raise ValueError("Could not determine nominal frequency. Provide --nominal_frequency_hz or rename the raw file.")
 
+    replication_manifest = (
+        load_manifest_csv(args.replication_manifest_csv)
+        if args.replication_manifest_csv and os.path.exists(args.replication_manifest_csv)
+        else {}
+    )
+    alt_manifest = (
+        load_manifest_csv(args.alt_manifest_csv)
+        if args.alt_manifest_csv and os.path.exists(args.alt_manifest_csv)
+        else {}
+    )
+    manifest_entry, manifest_source = choose_manifest_entry_for_raw(
+        raw_file=os.path.basename(raw_path),
+        nominal_frequency_hz=float(nominal_frequency_hz),
+        replication_manifest=replication_manifest,
+        alt_manifest=alt_manifest,
+    )
+    expected_duration_s = float(manifest_entry.duration_s) if manifest_entry is not None else float("nan")
+    expected_frequency_hz = (
+        float(manifest_entry.actual_frequency_hz) if manifest_entry is not None else float(nominal_frequency_hz)
+    )
+
     first_t_us, last_t_us, max_x, max_y = scan_capture_metadata(raw_path)
     capture_duration_s = (last_t_us - first_t_us) * 1e-6
     activity_window = detect_activity_window(
@@ -574,6 +760,7 @@ def main() -> None:
         capture_end_us=last_t_us,
         bin_width_ms=args.activity_bin_ms,
         threshold_sigma=args.activity_threshold_sigma,
+        expected_duration_s=expected_duration_s,
     )
 
     baseline_start_s, baseline_end_s = choose_baseline_window(activity_window, capture_duration_s)
@@ -630,23 +817,25 @@ def main() -> None:
         fft_period_s,
         autocorr_frequency_hz,
         autocorr_period_s,
-        frequency_estimator,
+        _trace_frequency_estimator,
     ) = estimate_trace_frequency(
         counts=trace_counts_smoothed,
         bin_width_s=args.transition_bin_us * 1e-6,
         nominal_frequency_hz=float(nominal_frequency_hz),
     )
-    if np.isfinite(autocorr_period_s):
-        estimated_period_s = float(autocorr_period_s)
-    elif np.isfinite(fft_period_s):
-        estimated_period_s = float(fft_period_s)
-    else:
-        estimated_period_s = float(peak_estimated_period_s)
-        frequency_estimator = "peak_fallback" if np.isfinite(estimated_period_s) else "unavailable"
-    estimated_frequency_hz = 1.0 / estimated_period_s if np.isfinite(estimated_period_s) and estimated_period_s > 0 else float("nan")
+    estimated_frequency_hz, frequency_estimator = choose_estimated_frequency_hz(
+        nominal_frequency_hz=float(nominal_frequency_hz),
+        expected_frequency_hz=expected_frequency_hz,
+        fft_frequency_hz=float(fft_frequency_hz),
+        autocorr_frequency_hz=float(autocorr_frequency_hz),
+        peak_frequency_hz=float(peak_estimated_frequency_hz),
+    )
+    estimated_period_s = (
+        1.0 / estimated_frequency_hz if np.isfinite(estimated_frequency_hz) and estimated_frequency_hz > 0 else float("nan")
+    )
 
-    data_dir = os.path.join(root, "data", "replication_calibration")
-    plot_dir = os.path.join(root, "plots", "replication_calibration")
+    data_dir = os.path.join(root, "data", "3.1", "replication_calibration")
+    plot_dir = os.path.join(root, "plots", "3.1", "replication_calibration")
     os.makedirs(data_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
 
@@ -678,6 +867,9 @@ def main() -> None:
     summary = CalibrationSummary(
         raw_file=os.path.basename(raw_path),
         nominal_frequency_hz=float(nominal_frequency_hz),
+        expected_frequency_hz=float(expected_frequency_hz),
+        manifest_duration_s=float(expected_duration_s),
+        manifest_source=str(manifest_source),
         capture_duration_s=float(capture_duration_s),
         active_start_s=float(activity_window.start_s),
         active_end_s=float(activity_window.end_s),
@@ -713,6 +905,13 @@ def main() -> None:
 
     print(f"Raw file: {summary.raw_file}")
     print(f"Nominal bit frequency: {summary.nominal_frequency_hz:.3f} Hz")
+    if np.isfinite(summary.manifest_duration_s):
+        print(
+            "Manifest guidance:"
+            f" source={summary.manifest_source}"
+            f" expected_frequency={summary.expected_frequency_hz:.3f} Hz"
+            f" duration={summary.manifest_duration_s:.3f} s"
+        )
     print(
         "Active window:"
         f" {summary.active_start_s:.3f}s to {summary.active_end_s:.3f}s"
