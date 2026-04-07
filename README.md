@@ -8,3 +8,4 @@ If working on this project with a completely new device, or in the case that eve
 4. Clone CSK_VLC repo from jLab GitHub, navigate to and copy/paste the folder pru1_pwm_CSK_1000Hz in Lab aka 195 folder. No other files in VLC_CSK should be copied. pru1_pwm_CSK_1000Hz is useful to have for LED behavior contexts and to see the documentation in a clearer form than in a terminal. 
 5. Your captures are all gone. Easy to get them back just re-record and place them in a folder called "Captures" in Lab aka 195.
 6. Open VScode in Lab aka 195 and resume work as usual
+7. Do not worry about files in the .gitignore, look in jLab google drive in Event Driven Camera VLC for any documents you may need like "experiment replcation 3.1". 
