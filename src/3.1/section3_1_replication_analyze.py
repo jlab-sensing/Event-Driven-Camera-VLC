@@ -86,6 +86,14 @@ class CalibrationEntry:
     autocorr_bit_frequency_hz: float
 
 
+@dataclass
+class DecodePlan:
+    decode_mode: str
+    bin_us: float
+    decode_rule: str
+    reliability_label: str
+
+
 def is_valid_frequency_hz(value: float) -> bool:
     return bool(np.isfinite(value) and value > 0)
 
@@ -262,6 +270,37 @@ def extract_frequency_from_name(filename: str, pattern: str) -> Optional[float]:
         return parse_numeric_token(match.group(1))
     except Exception:
         return None
+
+
+def choose_locked_hybrid_plan(frequency_hz: float, fallback_bin_us: float) -> DecodePlan:
+    # This rule is intentionally fixed to the current patch130 decoder comparison.
+    if frequency_hz <= 1000.0:
+        return DecodePlan(
+            decode_mode="transition",
+            bin_us=float(fallback_bin_us),
+            decode_rule="hybrid_locked_transition",
+            reliability_label="locked_hybrid_band",
+        )
+    if 1500.0 <= frequency_hz <= 2500.0:
+        return DecodePlan(
+            decode_mode="activity",
+            bin_us=15.0,
+            decode_rule="hybrid_locked_activity_15us",
+            reliability_label="locked_hybrid_band",
+        )
+    if frequency_hz > 2500.0:
+        return DecodePlan(
+            decode_mode="activity",
+            bin_us=15.0,
+            decode_rule="hybrid_locked_activity_15us",
+            reliability_label="unreliable_high_frequency",
+        )
+    return DecodePlan(
+        decode_mode="activity",
+        bin_us=15.0,
+        decode_rule="hybrid_locked_activity_15us",
+        reliability_label="unvalidated_frequency_gap",
+    )
 
 
 # ----------------------------
@@ -444,6 +483,41 @@ def auto_threshold(sym_sums: np.ndarray) -> float:
     if low.size == 0 or high.size == 0:
         return med
     return float(0.5 * (np.mean(low) + np.mean(high)))
+
+
+def transition_threshold_candidates(boundary_counts: np.ndarray, target_rate_hz: float) -> np.ndarray:
+    if boundary_counts.size == 0:
+        return np.array([], dtype=np.float64)
+
+    auto_thr = auto_threshold(boundary_counts)
+    if not np.isfinite(auto_thr):
+        return np.array([], dtype=np.float64)
+
+    if target_rate_hz <= 1500.0:
+        return np.array([float(auto_thr)], dtype=np.float64)
+
+    candidates: List[float] = [float(auto_thr)]
+    for q in (0.55, 0.65, 0.75, 0.85, 0.92):
+        candidates.append(float(np.quantile(boundary_counts, q)))
+
+    med = float(np.median(boundary_counts))
+    mad = float(np.median(np.abs(boundary_counts - med))) + 1e-9
+    robust_sigma = 1.4826 * mad
+    for scale in (0.5, 1.0, 1.5):
+        candidates.append(float(med + scale * robust_sigma))
+
+    lo = float(np.min(boundary_counts))
+    hi = float(np.max(boundary_counts))
+    unique: List[float] = []
+    for value in candidates:
+        if not np.isfinite(value):
+            continue
+        clipped = float(np.clip(value, lo, hi))
+        if any(np.isclose(clipped, existing, rtol=1e-9, atol=1e-9) for existing in unique):
+            continue
+        unique.append(clipped)
+
+    return np.array(unique, dtype=np.float64)
 
 
 def integrate_symbol_counts(
@@ -750,66 +824,68 @@ def score_transition_stream(
     if boundary_counts.size + 1 < truth_message_bits.size:
         return None
 
-    threshold = auto_threshold(boundary_counts)
-    if not np.isfinite(threshold):
+    thresholds = transition_threshold_candidates(boundary_counts, target_rate_hz)
+    if thresholds.size == 0:
         return None
 
-    edge_bits = (boundary_counts >= threshold).astype(np.uint8)
     best: Optional[CandidateResult] = None
     message_len = int(truth_message_bits.size)
 
-    for init_bit in (0, 1):
-        decoded_bits = np.empty(edge_bits.size + 1, dtype=np.uint8)
-        decoded_bits[0] = np.uint8(init_bit)
-        for i, edge in enumerate(edge_bits, start=1):
-            decoded_bits[i] = decoded_bits[i - 1] ^ np.uint8(edge)
+    for threshold in thresholds:
+        edge_bits = (boundary_counts >= threshold).astype(np.uint8)
 
-        for offset in range(message_len):
-            usable = decoded_bits[offset:]
-            n_messages_available = int(usable.size // message_len)
-            if n_messages_available <= 0:
-                continue
+        for init_bit in (0, 1):
+            decoded_bits = np.empty(edge_bits.size + 1, dtype=np.uint8)
+            decoded_bits[0] = np.uint8(init_bit)
+            for i, edge in enumerate(edge_bits, start=1):
+                decoded_bits[i] = decoded_bits[i - 1] ^ np.uint8(edge)
 
-            usable = usable[: n_messages_available * message_len]
-            decoded_messages = usable.reshape(n_messages_available, message_len)
-            scored = score_decoded_messages(
-                decoded_messages=decoded_messages,
-                truth_message_bits=truth_message_bits,
-                expected_message_count=expected_message_count,
-            )
-            if scored is None:
-                continue
-            (
-                scored_bits,
-                n_messages_available,
-                message_start_index,
-                n_messages,
-                n_correct_messages,
-                n_bit_errors,
-                mar,
-                ber,
-            ) = scored
+            for offset in range(message_len):
+                usable = decoded_bits[offset:]
+                n_messages_available = int(usable.size // message_len)
+                if n_messages_available <= 0:
+                    continue
 
-            candidate = CandidateResult(
-                decode_rate_hz=float(decode_rate_hz),
-                rate_error_fraction=relative_frequency_error(float(decode_rate_hz), float(target_rate_hz)),
-                phase_s=float(phase_s),
-                message_offset_bits=int(offset + message_start_index * message_len),
-                init_bit=int(init_bit),
-                threshold=float(threshold),
-                n_symbols_total=int(decoded_bits.size),
-                n_symbols_scored=int(scored_bits.size),
-                n_messages_available=int(n_messages_available),
-                expected_message_count=int(expected_message_count) if expected_message_count is not None else 0,
-                n_messages=n_messages,
-                n_correct_messages=n_correct_messages,
-                mar=mar,
-                n_bit_errors=n_bit_errors,
-                ber=ber,
-                decoded_bits=scored_bits.copy(),
-            )
-            if compare_candidates(best, candidate):
-                best = candidate
+                usable = usable[: n_messages_available * message_len]
+                decoded_messages = usable.reshape(n_messages_available, message_len)
+                scored = score_decoded_messages(
+                    decoded_messages=decoded_messages,
+                    truth_message_bits=truth_message_bits,
+                    expected_message_count=expected_message_count,
+                )
+                if scored is None:
+                    continue
+                (
+                    scored_bits,
+                    n_messages_available,
+                    message_start_index,
+                    n_messages,
+                    n_correct_messages,
+                    n_bit_errors,
+                    mar,
+                    ber,
+                ) = scored
+
+                candidate = CandidateResult(
+                    decode_rate_hz=float(decode_rate_hz),
+                    rate_error_fraction=relative_frequency_error(float(decode_rate_hz), float(target_rate_hz)),
+                    phase_s=float(phase_s),
+                    message_offset_bits=int(offset + message_start_index * message_len),
+                    init_bit=int(init_bit),
+                    threshold=float(threshold),
+                    n_symbols_total=int(decoded_bits.size),
+                    n_symbols_scored=int(scored_bits.size),
+                    n_messages_available=int(n_messages_available),
+                    expected_message_count=int(expected_message_count) if expected_message_count is not None else 0,
+                    n_messages=n_messages,
+                    n_correct_messages=n_correct_messages,
+                    mar=mar,
+                    n_bit_errors=n_bit_errors,
+                    ber=ber,
+                    decoded_bits=scored_bits.copy(),
+                )
+                if compare_candidates(best, candidate):
+                    best = candidate
 
     return best
 
@@ -909,6 +985,8 @@ class FileResult:
     roi_x1: int
     roi_y1: int
     decode_mode: str
+    decode_rule: str
+    reliability_label: str
     phase_s: float
     init_bit: int
     threshold: float
@@ -939,6 +1017,9 @@ def aggregate_by_frequency(rows: List[FileResult]) -> List[dict]:
         total_correct_messages = int(sum(row.n_correct_messages for row in trials))
         total_bits = int(sum(row.n_symbols_scored for row in trials))
         total_bit_errors = int(sum(row.n_bit_errors for row in trials))
+        decode_modes = "|".join(sorted({row.decode_mode for row in trials}))
+        decode_rules = "|".join(sorted({row.decode_rule for row in trials}))
+        reliability_labels = "|".join(sorted({row.reliability_label for row in trials}))
 
         pooled_mar = (
             float(total_correct_messages / total_messages) if total_messages > 0 else float("nan")
@@ -948,6 +1029,9 @@ def aggregate_by_frequency(rows: List[FileResult]) -> List[dict]:
         out.append({
             "frequency_hz": freq,
             "n_trials": len(trials),
+            "decode_modes": decode_modes,
+            "decode_rules": decode_rules,
+            "reliability_labels": reliability_labels,
             "mar_mean": float(np.mean(mar_values)) if mar_values.size > 0 else float("nan"),
             "mar_std": float(np.std(mar_values)) if mar_values.size > 0 else float("nan"),
             "ber_mean": float(np.mean(ber_values)) if ber_values.size > 0 else float("nan"),
@@ -1079,9 +1163,9 @@ def main() -> None:
     )
     ap.add_argument(
         "--decode_mode",
-        choices=("activity", "transition"),
+        choices=("activity", "transition", "hybrid_locked"),
         default="activity",
-        help="Decode either from per-symbol activity counts or from transition bursts at bit boundaries.",
+        help="Decode from per-symbol activity counts, transition bursts, or a locked hybrid rule.",
     )
     ap.add_argument(
         "--phase_steps",
@@ -1304,14 +1388,24 @@ def main() -> None:
 
         events_per_s = float(trimmed_times_s.size / duration_s) if duration_s > 0 else float("nan")
         expected_message_count = int(manifest_entry.message_repeats) if manifest_entry is not None else None
+        if args.decode_mode == "hybrid_locked":
+            decode_plan = choose_locked_hybrid_plan(float(frequency_hz), float(args.bin_us))
+        else:
+            decode_plan = DecodePlan(
+                decode_mode=args.decode_mode,
+                bin_us=float(args.bin_us),
+                decode_rule=args.decode_mode,
+                reliability_label="standard_analysis",
+            )
+
         # Bin the event stream so symbol windows can be integrated efficiently.
         t_bins, counts = binned_activity(
             time_s=trimmed_times_s,
-            bin_width_s=args.bin_us * 1e-6,
+            bin_width_s=decode_plan.bin_us * 1e-6,
             duration_s=duration_s,
         )
 
-        if args.decode_mode == "transition":
+        if decode_plan.decode_mode == "transition":
             best = search_best_transition_decode(
                 t_bins=t_bins,
                 counts=counts,
@@ -1356,7 +1450,7 @@ def main() -> None:
             duration_s=float(duration_s),
             total_events=int(trimmed_times_s.size),
             events_per_s=events_per_s,
-            bin_us=float(args.bin_us),
+            bin_us=float(decode_plan.bin_us),
             analysis_start_s=float(analysis_start_s),
             analysis_end_s=float(analysis_end_s),
             trim_start_s=float(args.trim_start_s),
@@ -1368,7 +1462,9 @@ def main() -> None:
             roi_y0=int(roi[1]) if roi is not None else -1,
             roi_x1=int(roi[2]) if roi is not None else -1,
             roi_y1=int(roi[3]) if roi is not None else -1,
-            decode_mode=args.decode_mode,
+            decode_mode=decode_plan.decode_mode,
+            decode_rule=decode_plan.decode_rule,
+            reliability_label=decode_plan.reliability_label,
             phase_s=float(best.phase_s),
             init_bit=int(best.init_bit),
             threshold=float(best.threshold),
@@ -1407,7 +1503,9 @@ def main() -> None:
             f"Done: {raw_file} "
             f"freq={frequency_hz:.1f}Hz "
             f"roi={roi_source} "
-            f"mode={args.decode_mode} "
+            f"mode={decode_plan.decode_mode} "
+            f"rule={decode_plan.decode_rule} "
+            f"reliability={decode_plan.reliability_label} "
             f"rate={best.decode_rate_hz:.1f}Hz "
             f"drift={best.rate_error_fraction:.3f} "
             f"ratesrc={symbol_rate_source} "
@@ -1451,6 +1549,8 @@ def main() -> None:
             "roi_x1",
             "roi_y1",
             "decode_mode",
+            "decode_rule",
+            "reliability_label",
             "phase_s",
             "init_bit",
             "threshold",
@@ -1475,6 +1575,9 @@ def main() -> None:
         fieldnames = [
             "frequency_hz",
             "n_trials",
+            "decode_modes",
+            "decode_rules",
+            "reliability_labels",
             "mar_mean",
             "mar_std",
             "ber_mean",
