@@ -506,6 +506,13 @@ def compare_candidates(current: Optional["CandidateResult"], challenger: "Candid
     if challenger_count_error != current_count_error:
         return challenger_count_error < current_count_error
 
+    current_rate_error = float("inf") if not np.isfinite(current.rate_error_fraction) else float(current.rate_error_fraction)
+    challenger_rate_error = (
+        float("inf") if not np.isfinite(challenger.rate_error_fraction) else float(challenger.rate_error_fraction)
+    )
+    if challenger_rate_error != current_rate_error:
+        return challenger_rate_error < current_rate_error
+
     if challenger.n_messages != current.n_messages:
         return challenger.n_messages > current.n_messages
 
@@ -518,6 +525,7 @@ def compare_candidates(current: Optional["CandidateResult"], challenger: "Candid
 @dataclass
 class CandidateResult:
     decode_rate_hz: float
+    rate_error_fraction: float
     phase_s: float
     message_offset_bits: int
     init_bit: int
@@ -637,6 +645,7 @@ def score_symbol_stream(
 
         candidate = CandidateResult(
             decode_rate_hz=float(decode_rate_hz),
+            rate_error_fraction=0.0,
             phase_s=float(phase_s),
             message_offset_bits=int(drop + message_start_index * message_len),
             init_bit=int(decoded_bits[0]) if decoded_bits.size else 0,
@@ -735,6 +744,7 @@ def score_transition_stream(
     truth_message_bits: np.ndarray,
     phase_s: float,
     decode_rate_hz: float,
+    target_rate_hz: float,
     expected_message_count: Optional[int],
 ) -> Optional[CandidateResult]:
     if boundary_counts.size + 1 < truth_message_bits.size:
@@ -782,6 +792,7 @@ def score_transition_stream(
 
             candidate = CandidateResult(
                 decode_rate_hz=float(decode_rate_hz),
+                rate_error_fraction=relative_frequency_error(float(decode_rate_hz), float(target_rate_hz)),
                 phase_s=float(phase_s),
                 message_offset_bits=int(offset + message_start_index * message_len),
                 init_bit=int(init_bit),
@@ -815,6 +826,7 @@ def search_best_transition_decode(
     rate_steps: int,
     edge_window_fraction: float,
     expected_message_count: Optional[int],
+    max_rate_drift_fraction: float,
 ) -> Optional[CandidateResult]:
     if phase_steps <= 0:
         raise ValueError("phase_steps must be > 0")
@@ -833,6 +845,13 @@ def search_best_transition_decode(
         rate_steps,
         dtype=np.float64,
     )
+    if np.isfinite(max_rate_drift_fraction) and max_rate_drift_fraction > 0:
+        min_rate_hz = nominal_rate_hz * max(0.0, 1.0 - max_rate_drift_fraction)
+        max_rate_hz = nominal_rate_hz * (1.0 + max_rate_drift_fraction)
+        candidate_rates = candidate_rates[(candidate_rates >= min_rate_hz) & (candidate_rates <= max_rate_hz)]
+        if candidate_rates.size == 0:
+            candidate_rates = np.array([float(nominal_rate_hz)], dtype=np.float64)
+
     best: Optional[CandidateResult] = None
     for decode_rate_hz in candidate_rates:
         symbol_period_s = 1.0 / float(decode_rate_hz)
@@ -851,6 +870,7 @@ def search_best_transition_decode(
                 truth_message_bits=truth_message_bits,
                 phase_s=float(phase_s),
                 decode_rate_hz=float(decode_rate_hz),
+                target_rate_hz=float(nominal_rate_hz),
                 expected_message_count=expected_message_count,
             )
             if candidate is not None and compare_candidates(best, candidate):
@@ -869,6 +889,7 @@ class FileResult:
     symbol_rate_hz: float
     symbol_rate_source: str
     decode_rate_hz: float
+    decode_rate_error_fraction: float
     capture_events: int
     loaded_events: int
     capture_duration_s: float
@@ -1099,6 +1120,12 @@ def main() -> None:
         help="Transition-decoder boundary window width as a fraction of the candidate bit period.",
     )
     ap.add_argument(
+        "--transition_max_rate_drift_fraction",
+        type=float,
+        default=0.10,
+        help="Constrain transition-decoder candidate rates to stay within this fractional distance of the target symbol rate. Use <= 0 to disable.",
+    )
+    ap.add_argument(
         "--trim_start_s",
         type=float,
         default=0.0,
@@ -1138,6 +1165,8 @@ def main() -> None:
         raise ValueError("--transition_rate_steps must be > 0")
     if args.edge_window_fraction <= 0:
         raise ValueError("--edge_window_fraction must be > 0")
+    if args.transition_max_rate_drift_fraction < 0:
+        raise ValueError("--transition_max_rate_drift_fraction must be >= 0")
     if args.trim_start_s < 0 or args.trim_end_s < 0:
         raise ValueError("--trim_start_s and --trim_end_s must be >= 0")
 
@@ -1295,6 +1324,7 @@ def main() -> None:
                 rate_steps=args.transition_rate_steps,
                 edge_window_fraction=args.edge_window_fraction,
                 expected_message_count=expected_message_count,
+                max_rate_drift_fraction=args.transition_max_rate_drift_fraction,
             )
         else:
             best = search_best_decode(
@@ -1319,6 +1349,7 @@ def main() -> None:
             symbol_rate_hz=symbol_rate_hz,
             symbol_rate_source=symbol_rate_source,
             decode_rate_hz=float(best.decode_rate_hz),
+            decode_rate_error_fraction=float(best.rate_error_fraction),
             capture_events=int(capture_events),
             loaded_events=int(loaded_events),
             capture_duration_s=capture_duration_s,
@@ -1378,6 +1409,7 @@ def main() -> None:
             f"roi={roi_source} "
             f"mode={args.decode_mode} "
             f"rate={best.decode_rate_hz:.1f}Hz "
+            f"drift={best.rate_error_fraction:.3f} "
             f"ratesrc={symbol_rate_source} "
             f"window={analysis_start_s:.3f}-{analysis_end_s:.3f}s "
             f"available={best.n_messages_available} "
@@ -1399,6 +1431,7 @@ def main() -> None:
             "symbol_rate_hz",
             "symbol_rate_source",
             "decode_rate_hz",
+            "decode_rate_error_fraction",
             "capture_events",
             "loaded_events",
             "capture_duration_s",
