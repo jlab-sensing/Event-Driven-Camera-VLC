@@ -12,8 +12,16 @@ import matplotlib.pyplot as plt
 # Repo path helpers
 # ----------------------------
 def repo_root_from_this_file(this_file: str) -> str:
-    # this_file is __file__ from a script inside src/
-    return os.path.abspath(os.path.join(os.path.dirname(this_file), ".."))
+    # Walk upward until we hit the repo's src/ folder, then return its parent.
+    # This supports scripts stored directly in src/ and nested paths like src/3.1/.
+    cursor = os.path.abspath(os.path.dirname(this_file))
+    while True:
+        if os.path.basename(cursor) == "src":
+            return os.path.abspath(os.path.join(cursor, ".."))
+        parent = os.path.abspath(os.path.join(cursor, ".."))
+        if parent == cursor:
+            raise ValueError(f"Could not locate repo root from path: {this_file}")
+        cursor = parent
 
 
 def data_dir(this_file: str) -> str:
