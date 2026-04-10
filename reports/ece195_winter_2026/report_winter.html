@@ -226,7 +226,7 @@
       <p>For timing responsiveness, three corrected baseline latency trials were completed in the <code>section3_1_1000Hz</code> capture set and reanalyzed with the repository latency pipeline. An earlier 30-pulse interpretation was archived after it became clear that the recording window did not actually contain all 30 expected pulses, which artificially reduced the detection rate. After correcting the schedule to the 10 pulses that were truly present in the capture window, the final baseline summary detected all 30 out of 30 pulses across the three trials. The pooled result was a mean first-event latency of 16.1 microseconds, a median latency of 6.5 microseconds, a 95th-percentile latency of 61.7 microseconds, and a worst case of 126.0 microseconds. Figure 1 and Table 1 summarize that corrected result.</p>
 
       <figure>
-        <img src="../../plots/latency/s31_latency_1000Hz_10pulses_latency_boxplot_by_trial.png" alt="Latency boxplot by trial for the corrected 10-pulse baseline analysis.">
+        <img src="../../plots/3.1/latency/s31_latency_1000Hz_10pulses_latency_boxplot_by_trial.png" alt="Latency boxplot by trial for the corrected 10-pulse baseline analysis.">
         <figcaption><strong>Figure 1.</strong> Corrected baseline latency boxplot by trial. All three trials detected every expected pulse in the 10-pulse window, with most latencies clustered in the single-digit to low-double-digit microsecond range and a small number of high-latency outliers.</figcaption>
       </figure>
 
@@ -277,7 +277,7 @@
       <p>Inter-event timing behavior was then analyzed on those same corrected 1000 Hz baseline captures to characterize how densely the EVK4 responded once a pulse was detected. For each of the 30 detected pulses, the analysis measured consecutive event spacing within a fixed 250 us window after the first detected event. All 30 pulses produced analyzable event bursts in that window. Pooled across the three trials, the mean burst contained 38.8 events over an average duration of 236.0 us, with a median inter-event interval of 3.0 us and a 95th-percentile interval of 19.3 us. Figure 2 summarizes the overall inter-event interval distribution and shows that the baseline response was not only prompt, but also temporally dense after each edge.</p>
 
       <figure>
-        <img src="../../plots/inter%20event/s31_interevent_1000Hz_dt_histogram.png" alt="Histogram of all Section 3.1 inter-event intervals measured within 250 microseconds after each detected pulse.">
+        <img src="../../plots/3.1/inter%20event/s31_interevent_1000Hz_dt_histogram.png" alt="Histogram of all Section 3.1 inter-event intervals measured within 250 microseconds after each detected pulse.">
         <figcaption><strong>Figure 2.</strong> Histogram of all Section 3.1 inter-event intervals measured within a 250 us window after the first detected event for each pulse in the corrected 1000 Hz baseline trials. The distribution is concentrated at low-microsecond spacing, with a median of 3.0 us and a 95th-percentile of 19.3 us.</figcaption>
       </figure>
 
@@ -315,7 +315,7 @@
       <p>For illumination sensitivity, a lux sweep was completed at 0, 62, 300, and 512 lux with three trials at each lighting level. Those experiments generated event-rate, noise-rate, and SNR summaries. Across all four ambient-light conditions, the transmitted signal remained strongly separated from the background according to the current SNR proxy. Mean SNR z-score values ranged from about 6.5e3 to 1.03e4, which indicates that the camera continued to produce a strong signal-driven event response even as room lighting changed substantially. Figure 3 and Table 3 summarize the illumination result.</p>
 
       <figure>
-        <img src="../../plots/lux%20sweep/s31_lux_sweep_1000Hz_snr_vs_lux_errorbar_mean_std.png" alt="SNR vs Lux (mean &plusmn; std) plot with error bars for the EVK4 baseline illumination sweep.">
+        <img src="../../plots/3.1/lux%20sweep/s31_lux_sweep_1000Hz_snr_vs_lux_errorbar_mean_std.png" alt="SNR vs Lux (mean &plusmn; std) plot with error bars for the EVK4 baseline illumination sweep.">
         <figcaption><strong>Figure 3.</strong> SNR z-score versus ambient illumination for the 1000 Hz lux sweep. The response remained strongly separated from the measured background at every tested lux level.</figcaption>
       </figure>
 
@@ -395,8 +395,79 @@
     <section>
       <h2>Remaining Work Entering Spring 2026</h2>
       <p>As of March 23, 2026, the major remaining baseline objective is no longer to prove that sub-50 us pulse width sensing is possible, since reliable detection was demonstrated down to 10 us. The next step is to determine the true failure point of the EVK4 under the controlled setup, but further characterization below 10 us was limited this quarter by instability in the LED transmitter setup. </p>
-      <p>The benchmark replication from Section 3.1 is also still outstanding. That next step should use known transmitted bit sequences, controlled frequency sweeps, and BER or message-accuracy measurements so that the EVK4 results can be compared directly against the published baseline from von Arnim et al. Once that work is complete, the Section 3.1 baseline story will be much stronger because it will include not only latency and pulse-width limits, but also an accuracy-based comparison against prior art.</p>
-      <p>Spring quarter should then focus on two broader thesis directions. First, Section 3.2 should begin instrumented power measurements so that sensing energy, host-side compute cost, and total energy per bit can be quantified under matched OOK settings. Second, Section 3.4 should move the existing RGB transmitter groundwork into real CSK experiments by collecting event-camera captures, building the corresponding decoding pipeline, and reporting symbol accuracy or BER under those multicolor transmissions.</p>
+      <p>At the time of the March 23, 2026 draft, the benchmark replication from Section 3.1 was still outstanding. That work was later completed in Spring 2026 and is summarized in the addendum below. The remaining replication problem is no longer basic pipeline construction; it is validating whether the improved April 3, 2026 setup can be reproduced across independent capture sessions.</p>
+      <p>With the replication pipeline now in place, the next thesis directions are clearer. Section 3.2 should begin instrumented power measurements so that sensing energy, host-side compute cost, and total energy per bit can be quantified under matched OOK settings. Section 3.4 should move the existing RGB transmitter groundwork into real CSK experiments by collecting event-camera captures, building the corresponding decoding pipeline, and reporting symbol accuracy or BER under those multicolor transmissions.</p>
+    </section>
+
+    <section>
+      <h2>Spring 2026 Addendum: Section 3.1 Benchmark Replication</h2>
+      <p class="small-note">This section was added after the original winter-quarter deadline to close the benchmark-replication task that was still open as of March 23, 2026.</p>
+
+      <p>The finished replication experiment used a fixed 11-bit truth sequence, <code>10110010110</code>, transmitted 128 times per trial with 20 guard bits between messages. The transmitter was swept at requested frequencies of 500, 1000, 1500, 2000, 2500, and 3000 Hz, with two trials collected at each frequency. The final reported analysis used the corrected calibration pipeline to cap each active window to the known manifest duration and a locked hybrid decoder that used transition decoding at 500 to 1000 Hz and activity decoding with 15 us bins at 1500 to 2500 Hz. The 3000 Hz point was retained in the plots and tables, but it is explicitly treated as an unreliable high-frequency point.</p>
+
+      <p>Under the improved April 3, 2026 patch130 capture set, the EVK4 produced its strongest pooled message-accuracy results at 1000 Hz and 2000 Hz, reaching pooled MAR values of 0.316 and 0.313 respectively. The 1500 Hz point remained positive at 0.258 MAR, 2500 Hz dropped to 0.121 MAR, and 3000 Hz collapsed to 0.027 MAR. In BER terms, the lowest pooled error rates occurred in the 1500 to 2000 Hz range, where pooled BER was approximately 0.244 to 0.247. Table 4 and Figures 4 and 5 summarize those final patch130 results.</p>
+
+      <table class="tight">
+        <caption>Table 4. Final patch130 benchmark-replication summary with locked hybrid decoding</caption>
+        <thead>
+          <tr>
+            <th>Frequency (Hz)</th>
+            <th>Decoder used</th>
+            <th>Correct / total messages</th>
+            <th>Pooled MAR</th>
+            <th>Pooled BER</th>
+            <th>Interpretation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>500</td><td>Transition</td><td>21 / 256</td><td>0.082</td><td>0.482</td><td>Weak but above zero</td></tr>
+          <tr><td>1000</td><td>Transition</td><td>81 / 256</td><td>0.316</td><td>0.362</td><td>Strongest low-rate result</td></tr>
+          <tr><td>1500</td><td>Activity, 15 us bins</td><td>66 / 256</td><td>0.258</td><td>0.244</td><td>Moderately successful</td></tr>
+          <tr><td>2000</td><td>Activity, 15 us bins</td><td>80 / 256</td><td>0.313</td><td>0.247</td><td>Best mid-band result</td></tr>
+          <tr><td>2500</td><td>Activity, 15 us bins</td><td>31 / 256</td><td>0.121</td><td>0.358</td><td>Degraded and inconsistent</td></tr>
+          <tr><td>3000</td><td>Activity, 15 us bins</td><td>7 / 256</td><td>0.027</td><td>0.496</td><td>Unreliable high-frequency point</td></tr>
+        </tbody>
+      </table>
+
+      <figure>
+        <img src="../../plots/3.1/replication/s31_replication_patch130_hybrid_locked_mar_vs_frequency.png" alt="Message accuracy ratio versus frequency for the April 3, 2026 patch130 benchmark-replication capture set.">
+        <figcaption><strong>Figure 4.</strong> Final locked-hybrid message accuracy ratio versus frequency for the April 3, 2026 patch130 replication capture set. Accuracy is strongest at 1000 Hz and 2000 Hz, remains positive at 1500 Hz, degrades at 2500 Hz, and collapses at 3000 Hz.</figcaption>
+      </figure>
+
+      <figure>
+        <img src="../../plots/3.1/replication/s31_replication_patch130_hybrid_locked_ber_vs_frequency.png" alt="Bit error rate versus frequency for the April 3, 2026 patch130 benchmark-replication capture set.">
+        <figcaption><strong>Figure 5.</strong> Final locked-hybrid bit error rate versus frequency for the April 3, 2026 patch130 replication capture set. The lowest BER values occur in the 1500 to 2000 Hz region, while the 3000 Hz point is effectively near-random.</figcaption>
+      </figure>
+
+      <p>To check whether that hybrid decoder rule generalized beyond the tuning set, the same frozen pipeline was then run on an untouched holdout subset from the March 26, 2026 capture session. That validation largely failed. Pooled MAR fell to 0.008 at 500 Hz, 0.000 at 1000, 1500, 2500, and 3000 Hz, and only 0.008 at 2000 Hz. The corresponding BER values stayed near 0.46 to 0.51 across the sweep. Table 5 and Figure 6 summarize the gap between the stronger April 3, 2026 patch130 session and the older March 26, 2026 holdout session.</p>
+
+      <table class="tight">
+        <caption>Table 5. Patch130 versus March 26 holdout comparison under the same locked hybrid pipeline</caption>
+        <thead>
+          <tr>
+            <th>Frequency (Hz)</th>
+            <th>Patch130 pooled MAR</th>
+            <th>Holdout pooled MAR</th>
+            <th>Patch130 pooled BER</th>
+            <th>Holdout pooled BER</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>500</td><td>0.082</td><td>0.008</td><td>0.482</td><td>0.478</td></tr>
+          <tr><td>1000</td><td>0.316</td><td>0.000</td><td>0.362</td><td>0.464</td></tr>
+          <tr><td>1500</td><td>0.258</td><td>0.000</td><td>0.244</td><td>0.466</td></tr>
+          <tr><td>2000</td><td>0.313</td><td>0.008</td><td>0.247</td><td>0.512</td></tr>
+          <tr><td>2500</td><td>0.121</td><td>0.000</td><td>0.358</td><td>0.486</td></tr>
+          <tr><td>3000</td><td>0.027</td><td>0.000</td><td>0.496</td><td>0.479</td></tr>
+        </tbody>
+      </table>
+
+      <figure>
+        <img src="../../plots/3.1/replication/s31_replication_holdout_only_hybrid_locked_mar_vs_frequency.png" alt="Message accuracy ratio versus frequency for the March 26, 2026 holdout replication captures.">
+        <figcaption><strong>Figure 6.</strong> Locked-hybrid message accuracy ratio versus frequency for the untouched March 26, 2026 holdout replication captures. Unlike the patch130 session, the same analysis rule does not generalize cleanly to this older session.</figcaption>
+      </figure>
+
+      <p>The fairest conclusion is therefore that Section 3.1 benchmark replication was achieved only partially and in a setup-sensitive way. The April 3, 2026 patch130 session shows that the EVK4 can decode the known message sequence through about 2000 Hz under improved conditions, with degraded performance at 2500 Hz and unreliable performance at 3000 Hz. However, the March 26, 2026 holdout results show that this claim does not yet generalize across sessions. Because ROI placement and bias settings were similar between those sessions while the April 3, 2026 captures showed much cleaner periodic structure at the transmitted rate, the remaining uncertainty now appears to be physical setup quality rather than missing analysis code. As entered into this report, the replication result should therefore be interpreted as a setup-dependent partial replication rather than a fully validated reproduction of the published benchmark.</p>
     </section>
 
     <p class="footer">Repository referenced throughout this report: <a href="https://github.com/jlab-sensing/Event-Driven-Camera-VLC">https://github.com/jlab-sensing/Event-Driven-Camera-VLC</a></p>
