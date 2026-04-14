@@ -36,6 +36,7 @@ REQUIRED_COLUMNS = [
 ]
 
 OPTIONAL_COLUMNS = [
+    "status",
     "lux",
     "distance_cm",
     "bits_scored",
@@ -209,6 +210,9 @@ def load_trials(manifest_path: str) -> List[EnergyTrial]:
         for row_number, row in enumerate(reader, start=2):
             if not any((value or "").strip() for value in row.values()):
                 continue
+            status = row.get("status", "").strip().lower()
+            if status in {"planned", "todo", "skip", "skipped"}:
+                continue
 
             trial_id = require_text(row, "trial_id", row_number)
             sensor_type = require_text(row, "sensor_type", row_number)
@@ -301,7 +305,7 @@ def load_trials(manifest_path: str) -> List[EnergyTrial]:
 
     if not trials:
         raise ValueError(
-            "Manifest did not contain any trial rows. Fill in the Section 3.2 template before running the analyzer."
+            "No ready Section 3.2 trial rows were found. Fill in a planned row and set status to blank or 'ready' before running the analyzer."
         )
     return trials
 

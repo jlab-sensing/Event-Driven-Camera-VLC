@@ -18,6 +18,7 @@ Use one row per trial. The template lives at:
 
 The key columns are:
 
+- `status`: optional; use `planned` for rows that should stay in the file but be skipped by the analyzer
 - `sensor_type`: for example `EVK4` or `Pixel7a`
 - `modulation`: for example `OOK`
 - `frequency_hz`: requested bit rate for the transmission
@@ -32,6 +33,12 @@ The key columns are:
 - `compute_idle_power_w`: matched host idle baseline
 
 The analyzer floor-clips idle-subtracted power at zero so small baseline noise does not create negative active energy.
+
+Starter rows for one stable EVK4 condition already live at:
+
+- `data/3.2/s32_energy_evk4_ook_1000hz_starter.csv`
+
+Those rows are marked `status=planned`, so the analyzer will ignore them until you fill in the missing measured values and change the rows to `ready` or leave `status` blank.
 
 ## Example
 
