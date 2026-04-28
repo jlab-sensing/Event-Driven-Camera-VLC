@@ -373,7 +373,7 @@
    },
    {
     "name": "bias_hpf",
-    "value": 0
+    "value": 20
    },
    {
     "name": "bias_refr",
@@ -384,10 +384,10 @@
  "roi_state": {
   "window": [
    {
-    "x": 450,
-    "y": 250,
-    "width": 300,
-    "height": 300
+    "x": 500,
+    "y": 300,
+    "width": 200,
+    "height": 200
    }
   ],
   "columns": [],
