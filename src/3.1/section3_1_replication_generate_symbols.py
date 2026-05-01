@@ -2,7 +2,7 @@ import argparse
 import csv
 import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from io_utils import repo_root_from_this_file
 
@@ -36,9 +36,15 @@ class SymbolPlan:
     symbols_per_bit: int
     message_repeats: int
     guard_bits: int
+    target_duration_s: Optional[float]
+    duration_pad_symbols: int
     total_symbols: int
     duration_s: float
     output_file: str
+
+
+def duration_tag(seconds: float) -> str:
+    return f"{seconds:g}s".replace(".", "p")
 
 
 def build_symbol_stream(
@@ -62,6 +68,39 @@ def build_symbol_stream(
     )
     guard = off_symbol * (guard_bits * symbols_per_bit)
     return guard + (one_message * message_repeats) + guard
+
+
+def build_duration_symbol_stream(
+    truth_bits: str,
+    on_symbol: str,
+    off_symbol: str,
+    symbols_per_bit: int,
+    target_total_symbols: int,
+    guard_bits: int,
+) -> Tuple[str, int, int]:
+    if symbols_per_bit <= 0:
+        raise ValueError("symbols_per_bit must be > 0")
+    if target_total_symbols <= 0:
+        raise ValueError("target_total_symbols must be > 0")
+    if guard_bits < 0:
+        raise ValueError("guard_bits must be >= 0")
+
+    one_message = "".join(
+        (on_symbol if bit == "1" else off_symbol) * symbols_per_bit
+        for bit in truth_bits
+    )
+    guard = off_symbol * (guard_bits * symbols_per_bit)
+    available_symbols = target_total_symbols - (2 * len(guard))
+    if available_symbols < len(one_message):
+        raise ValueError(
+            "Target duration is too short for one complete message plus guard space."
+        )
+
+    message_repeats = available_symbols // len(one_message)
+    duration_pad_symbols = available_symbols - (message_repeats * len(one_message))
+    symbol_stream = guard + (one_message * message_repeats) + guard
+    symbol_stream += off_symbol * duration_pad_symbols
+    return symbol_stream, int(message_repeats), int(duration_pad_symbols)
 
 
 def main() -> None:
@@ -102,6 +141,15 @@ def main() -> None:
         help="How many complete 11-bit messages to repeat in each file.",
     )
     ap.add_argument(
+        "--target_duration_s",
+        type=float,
+        default=None,
+        help=(
+            "If set, override --message_repeats so each file lasts this many seconds. "
+            "Only complete messages are repeated; any leftover time is padded OFF."
+        ),
+    )
+    ap.add_argument(
         "--guard_bits",
         type=int,
         default=20,
@@ -127,12 +175,19 @@ def main() -> None:
         default="s31_replication",
         help="Prefix for generated symbol filenames.",
     )
+    ap.add_argument(
+        "--manifest_name",
+        default=None,
+        help="Manifest CSV filename. Defaults to '<out_prefix>_manifest.csv'.",
+    )
     args = ap.parse_args()
 
     if args.symbol_us <= 0:
         raise ValueError("--symbol_us must be > 0")
     if args.message_repeats <= 0:
         raise ValueError("--message_repeats must be > 0")
+    if args.target_duration_s is not None and args.target_duration_s <= 0:
+        raise ValueError("--target_duration_s must be > 0")
     if args.guard_bits < 0:
         raise ValueError("--guard_bits must be >= 0")
     if len(args.on_symbol) != 1 or len(args.off_symbol) != 1:
@@ -153,16 +208,32 @@ def main() -> None:
 
         symbols_per_bit = max(1, int(round((1_000_000.0 / args.symbol_us) / requested_freq_hz)))
         actual_freq_hz = (1_000_000.0 / args.symbol_us) / symbols_per_bit
-        symbol_stream = build_symbol_stream(
-            truth_bits=truth_bits,
-            on_symbol=args.on_symbol,
-            off_symbol=args.off_symbol,
-            symbols_per_bit=symbols_per_bit,
-            message_repeats=args.message_repeats,
-            guard_bits=args.guard_bits,
-        )
+        message_repeats = args.message_repeats
+        duration_pad_symbols = 0
+        if args.target_duration_s is None:
+            symbol_stream = build_symbol_stream(
+                truth_bits=truth_bits,
+                on_symbol=args.on_symbol,
+                off_symbol=args.off_symbol,
+                symbols_per_bit=symbols_per_bit,
+                message_repeats=message_repeats,
+                guard_bits=args.guard_bits,
+            )
+        else:
+            target_total_symbols = int(round((args.target_duration_s * 1_000_000.0) / args.symbol_us))
+            symbol_stream, message_repeats, duration_pad_symbols = build_duration_symbol_stream(
+                truth_bits=truth_bits,
+                on_symbol=args.on_symbol,
+                off_symbol=args.off_symbol,
+                symbols_per_bit=symbols_per_bit,
+                target_total_symbols=target_total_symbols,
+                guard_bits=args.guard_bits,
+            )
 
-        file_name = f"{args.out_prefix}_{int(round(requested_freq_hz))}Hz_symbols.txt"
+        file_suffix = "symbols"
+        if args.target_duration_s is not None:
+            file_suffix = f"{duration_tag(args.target_duration_s)}_symbols"
+        file_name = f"{args.out_prefix}_{int(round(requested_freq_hz))}Hz_{file_suffix}.txt"
         out_path = os.path.join(args.out_dir, file_name)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(symbol_stream)
@@ -174,8 +245,10 @@ def main() -> None:
                 requested_frequency_hz=float(requested_freq_hz),
                 actual_frequency_hz=float(actual_freq_hz),
                 symbols_per_bit=int(symbols_per_bit),
-                message_repeats=int(args.message_repeats),
+                message_repeats=int(message_repeats),
                 guard_bits=int(args.guard_bits),
+                target_duration_s=args.target_duration_s,
+                duration_pad_symbols=int(duration_pad_symbols),
                 total_symbols=int(total_symbols),
                 duration_s=float(duration_s),
                 output_file=file_name,
@@ -184,10 +257,12 @@ def main() -> None:
         print(
             f"Saved {file_name} "
             f"(requested={requested_freq_hz:.1f}Hz, actual={actual_freq_hz:.3f}Hz, "
-            f"symbols_per_bit={symbols_per_bit}, duration={duration_s:.3f}s)"
+            f"symbols_per_bit={symbols_per_bit}, repeats={message_repeats}, "
+            f"duration={duration_s:.3f}s)"
         )
 
-    manifest_path = os.path.join(args.out_dir, f"{args.out_prefix}_manifest.csv")
+    manifest_name = args.manifest_name or f"{args.out_prefix}_manifest.csv"
+    manifest_path = os.path.join(args.out_dir, manifest_name)
     with open(manifest_path, "w", newline="", encoding="utf-8") as f:
         fieldnames = [
             "truth_bits",
@@ -196,6 +271,8 @@ def main() -> None:
             "symbols_per_bit",
             "message_repeats",
             "guard_bits",
+            "target_duration_s",
+            "duration_pad_symbols",
             "total_symbols",
             "duration_s",
             "output_file",
@@ -210,6 +287,8 @@ def main() -> None:
                 "symbols_per_bit": plan.symbols_per_bit,
                 "message_repeats": plan.message_repeats,
                 "guard_bits": plan.guard_bits,
+                "target_duration_s": plan.target_duration_s,
+                "duration_pad_symbols": plan.duration_pad_symbols,
                 "total_symbols": plan.total_symbols,
                 "duration_s": plan.duration_s,
                 "output_file": plan.output_file,

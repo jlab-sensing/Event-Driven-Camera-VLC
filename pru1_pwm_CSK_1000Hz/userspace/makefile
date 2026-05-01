@@ -1,4 +1,4 @@
-SYMBOL_FILE ?= s31_lux_sweep_1000Hz_symbols.txt
+SYMBOL_FILE ?= s31_replication_1500Hz_60s_symbols.txt
 
 all: userspace
 

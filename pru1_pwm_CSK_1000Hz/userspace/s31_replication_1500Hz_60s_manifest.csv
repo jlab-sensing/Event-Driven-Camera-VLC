@@ -1,0 +1,2 @@
+truth_bits,requested_frequency_hz,actual_frequency_hz,symbols_per_bit,message_repeats,guard_bits,target_duration_s,duration_pad_symbols,total_symbols,duration_s,output_file
+10110010110,1500.0,1499.2503748125937,667,8174,20,60.0,682,60000000,60.0,s31_replication_1500Hz_60s_symbols.txt
