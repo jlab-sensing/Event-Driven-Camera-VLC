@@ -1,7 +1,4 @@
 # About
-# please do not trust this README.md blindly, highly likely that there is some outdated information. 
-
-
 
 This folder contains code for two programs, both of which are necessary to transmit a series of data symbols over an RGB LED.
 

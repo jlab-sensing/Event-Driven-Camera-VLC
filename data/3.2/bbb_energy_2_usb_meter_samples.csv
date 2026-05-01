@@ -1,0 +1,16 @@
+source_video,time_s,voltage_v,current_a,power_w,cumulative_mah,cumulative_mwh,source_frame,marker,notes
+captures/3.2/bbb_energy_2.MOV,0.0,5.138,0.2652,1.362,268,1377,frame_0000,,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,1.3,5.141,0.3076,1.581,268,1377,frame_0013,audio_event_baseline,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,10.0,5.146,0.3077,1.582,269,1381,frame_0100,,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,15.6,5.135,0.3029,1.555,269,1383,frame_0156,audio_event_start,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,20.0,5.134,0.3295,1.691,269,1385,frame_0200,active,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,25.0,5.135,0.3313,1.701,270,1387,frame_0250,active,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,30.0,5.134,0.2884,1.480,270,1389,frame_0300,active,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,35.0,5.141,0.3269,1.680,271,1391,frame_0350,active,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,40.0,5.139,0.2990,1.536,271,1394,frame_0400,active,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,45.0,5.133,0.2905,1.491,272,1396,frame_0450,active,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,45.6,5.133,0.2903,1.491,272,1396,frame_0456,transmit_end_estimated_start_plus_30s,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,47.4,5.134,0.2911,1.490,272,1397,frame_0474,audio_event_stop,manual read from rotated crop; current digit is visually ambiguous but power/mWh are clear
+captures/3.2/bbb_energy_2.MOV,50.0,5.129,0.3915,2.008,272,1398,frame_0500,post_stop,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,55.0,5.138,0.2966,1.523,272,1400,frame_0550,post_stop,manual read from rotated crop
+captures/3.2/bbb_energy_2.MOV,60.0,5.138,0.2650,1.361,273,1403,frame_0600,post_stop,manual read from rotated crop

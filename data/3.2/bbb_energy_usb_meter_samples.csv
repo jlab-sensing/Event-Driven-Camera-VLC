@@ -1,0 +1,17 @@
+source_video,time_s,voltage_v,current_a,power_w,cumulative_mah,cumulative_mwh,source_frame,notes
+captures/3.2/bbb_energy.mov,0,5.140,0.3246,1.668,164,845,frame_001,manual read from rotated crop
+captures/3.2/bbb_energy.mov,5,5.135,0.3254,1.673,165,847,frame_006,manual read from rotated crop
+captures/3.2/bbb_energy.mov,10,5.134,0.2892,1.484,165,849,frame_011,manual read from rotated crop
+captures/3.2/bbb_energy.mov,15,5.142,0.3237,1.664,166,852,frame_016,manual read from rotated crop
+captures/3.2/bbb_energy.mov,20,5.134,0.2878,1.477,166,854,frame_021,manual read from rotated crop
+captures/3.2/bbb_energy.mov,25,5.135,0.2827,1.451,166,856,frame_026,manual read from rotated crop
+captures/3.2/bbb_energy.mov,30,5.141,0.3314,1.704,167,858,frame_031,manual read from rotated crop
+captures/3.2/bbb_energy.mov,35,5.133,0.2900,1.488,167,860,frame_036,manual read from rotated crop
+captures/3.2/bbb_energy.mov,40,5.133,0.3326,1.707,168,863,frame_041,manual read from rotated crop
+captures/3.2/bbb_energy.mov,45,5.141,0.3332,1.711,168,865,frame_046,manual read from rotated crop
+captures/3.2/bbb_energy.mov,50,5.133,0.2900,1.488,169,867,frame_051,manual read from rotated crop
+captures/3.2/bbb_energy.mov,55,5.141,0.3226,1.658,169,869,frame_056,manual read from rotated crop
+captures/3.2/bbb_energy.mov,60,5.129,0.3643,1.868,169,872,frame_061,manual read from rotated crop
+captures/3.2/bbb_energy.mov,65,5.130,0.2662,1.365,170,874,frame_066,manual read from rotated crop
+captures/3.2/bbb_energy.mov,70,5.143,0.3080,1.584,170,876,frame_071,manual read from rotated crop
+captures/3.2/bbb_energy.mov,75,5.137,0.3038,1.560,171,878,frame_076,manual read from rotated crop
