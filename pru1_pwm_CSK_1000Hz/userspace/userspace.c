@@ -7,7 +7,7 @@
 
 //#define DATA_FILENAME "CFK_symbols_interleaved_translated_1000Hzhope.txt"
 // Default symbol file. You can override from CLI: ./userspace <symbol_file>.
-#define DEFAULT_DATA_FILENAME "s31_replication_1500Hz_60s_symbols.txt"
+#define DEFAULT_DATA_FILENAME "s31_replication_1500Hz_30s_symbols.txt"
 #define DEV_MEM_FILENAME "/dev/mem"
 
 #define PING_ADDR		0x9FFC0000

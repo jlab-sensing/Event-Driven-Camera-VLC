@@ -34,13 +34,13 @@ Terminal 1:
 2. `make userspace`
 3. Run userspace with a chosen symbol file:
    - Default: `sudo ./userspace`
-   - Explicit file: `sudo ./userspace s31_replication_1500Hz_60s_symbols.txt`
-   - `make` shortcut: `make program SYMBOL_FILE=s31_replication_1500Hz_60s_symbols.txt`
-4. Default userspace symbol file is `s31_replication_1500Hz_60s_symbols.txt` (60,000,000 symbols):
+   - Explicit file: `sudo ./userspace s31_replication_1500Hz_30s_symbols.txt`
+   - `make` shortcut: `make program SYMBOL_FILE=s31_replication_1500Hz_30s_symbols.txt`
+4. Default userspace symbol file is `s31_replication_1500Hz_30s_symbols.txt` (30,000,000 symbols):
    - 1 microsecond PRU symbol timing
    - 1500 Hz requested OOK bit rate, 1499.250 Hz actual bit rate (`667` symbols per bit)
-   - 8,174 complete repeats of the 11-bit replication message
-   - OFF guard/pad symbols fill the rest of the 60 second window
+   - 4,085 complete repeats of the 11-bit replication message
+   - OFF guard/pad symbols fill the rest of the 30 second window
 5. Current minimum-pulse-width probe files (all 14,000,000 symbols, built for 0.001 ms PRU symbol timing):
    - `s31_pw1us_0p005ms_symbols.txt`
    - `s31_pw1us_0p001ms_symbols.txt`
@@ -51,7 +51,7 @@ Terminal 2:
 1. Navigate to the `pru1_pwm/` folder.
 2. Build/load PRU firmware (symbol timing currently 0.001 ms): `make clean && make program`
 3. Start one transmission:
-   - `sleep 1 && SYMLEN=$(wc -c < userspace/s31_replication_1500Hz_60s_symbols.txt) && echo -n "$SYMLEN" > /dev/rpmsg_pru31 && cat /dev/rpmsg_pru31`
+   - `sleep 1 && SYMLEN=$(wc -c < userspace/s31_replication_1500Hz_30s_symbols.txt) && echo -n "$SYMLEN" > /dev/rpmsg_pru31 && cat /dev/rpmsg_pru31`
 4. Observe diagnostic messages on the terminal, and use CTRL+C to cancel the `cat` program after the current transmission finishes.
 5. To repeat with another pulse-width file, update only the filename in `SYMLEN=$(wc -c < userspace/<file>.txt)`.
 
