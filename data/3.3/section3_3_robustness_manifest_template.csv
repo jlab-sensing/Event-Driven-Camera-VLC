@@ -1,0 +1,1 @@
+trial_id,status,sensor_type,modulation,frequency_hz,actual_frequency_hz,lux,lighting_source,visibility_condition,scenario,distance_cm,angle_deg,bits_transmitted,bits_scored,bit_errors,active_start_s,active_end_s,capture_file,decode_log_file,total_events,raw_duration_s,active_duration_s,event_rate_per_s,max_event_gap_ms,long_event_gap_count,long_event_gap_fraction,notes
