@@ -5,7 +5,7 @@ import os
 import statistics
 import sys
 from dataclasses import asdict, dataclass
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import matplotlib
 matplotlib.use("Agg")
@@ -40,6 +40,10 @@ OPTIONAL_COLUMNS = [
     "lux",
     "distance_cm",
     "bits_scored",
+    "sensing_power_uncertainty_w",
+    "sensing_idle_power_uncertainty_w",
+    "compute_power_uncertainty_w",
+    "compute_idle_power_uncertainty_w",
     "capture_file",
     "power_log_file",
     "decode_log_file",
@@ -48,6 +52,20 @@ OPTIONAL_COLUMNS = [
 
 NUMERIC_X_FIELDS = ["frequency_hz", "lux", "distance_cm"]
 DEFAULT_SERIES_FIELDS = ["sensor_type", "lux", "modulation"]
+POWER_ESTIMATE_COLUMNS = [
+    "sensing_window_s",
+    "sensing_power_w",
+    "sensing_idle_power_w",
+    "compute_window_s",
+    "compute_power_w",
+    "compute_idle_power_w",
+    "sensing_power_uncertainty_w",
+    "sensing_idle_power_uncertainty_w",
+    "compute_power_uncertainty_w",
+    "compute_idle_power_uncertainty_w",
+]
+MANUAL_POWER_LOG_TOKENS = ("manual", "usb_meter")
+DEFAULT_MANUAL_POWER_UNCERTAINTY_W = 0.001
 
 
 @dataclass
@@ -67,8 +85,13 @@ class EnergyTrial:
     compute_window_s: float
     compute_power_w: float
     compute_idle_power_w: float
+    sensing_power_uncertainty_w: float
+    sensing_idle_power_uncertainty_w: float
+    compute_power_uncertainty_w: float
+    compute_idle_power_uncertainty_w: float
     capture_file: str
     power_log_file: str
+    power_source: str
     decode_log_file: str
     notes: str
     score_fraction: float
@@ -76,12 +99,20 @@ class EnergyTrial:
     correct_bits: int
     sensing_active_power_w: float
     compute_active_power_w: float
+    sensing_active_power_uncertainty_w: float
+    compute_active_power_uncertainty_w: float
     sensing_energy_j_gross: float
     sensing_energy_j_active: float
     compute_energy_j_gross: float
     compute_energy_j_active: float
     total_energy_j_gross: float
     total_energy_j_active: float
+    sensing_energy_j_gross_uncertainty: float
+    sensing_energy_j_active_uncertainty: float
+    compute_energy_j_gross_uncertainty: float
+    compute_energy_j_active_uncertainty: float
+    total_energy_j_gross_uncertainty: float
+    total_energy_j_active_uncertainty: float
     sensing_active_j_per_tx_bit: float
     compute_active_j_per_tx_bit: float
     gross_j_per_tx_bit: float
@@ -90,6 +121,12 @@ class EnergyTrial:
     active_j_per_scored_bit: float
     gross_j_per_correct_bit: float
     active_j_per_correct_bit: float
+    gross_j_per_tx_bit_uncertainty: float
+    active_j_per_tx_bit_uncertainty: float
+    gross_j_per_scored_bit_uncertainty: float
+    active_j_per_scored_bit_uncertainty: float
+    gross_j_per_correct_bit_uncertainty: float
+    active_j_per_correct_bit_uncertainty: float
 
 
 def require_text(row: Dict[str, str], column: str, row_number: int) -> str:
@@ -157,6 +194,20 @@ def safe_divide(numerator: float, denominator: float) -> float:
     return float(numerator / denominator)
 
 
+def rss(values: Iterable[float]) -> float:
+    finite = [float(value) for value in values if math.isfinite(float(value))]
+    if not finite:
+        return 0.0
+    return math.sqrt(sum(value * value for value in finite))
+
+
+def rms_or_zero(values: Iterable[float]) -> float:
+    finite = [float(value) for value in values if math.isfinite(float(value))]
+    if not finite:
+        return 0.0
+    return math.sqrt(sum(value * value for value in finite) / len(finite))
+
+
 def format_value(value: object) -> str:
     if isinstance(value, float):
         if not math.isfinite(value):
@@ -199,12 +250,259 @@ def ensure_manifest_header(fieldnames: Sequence[str]) -> None:
         raise ValueError(f"Manifest is missing required columns: {missing_str}")
 
 
-def load_trials(manifest_path: str) -> List[EnergyTrial]:
+def parse_float_cell(row: Dict[str, str], column: str) -> Optional[float]:
+    raw = row.get(column, "").strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    if not math.isfinite(value):
+        return None
+    return value
+
+
+def resolve_power_log_path(repo_root: str, manifest_dir: str, power_log_file: str) -> Optional[str]:
+    if not power_log_file:
+        return None
+    if os.path.isabs(power_log_file) and os.path.exists(power_log_file):
+        return power_log_file
+
+    candidates = [
+        os.path.join(manifest_dir, power_log_file),
+        os.path.join(repo_root, power_log_file),
+        os.path.join(repo_root, "data", "3.2", power_log_file),
+        os.path.join(repo_root, "captures", "3.2", power_log_file),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def first_finite(row: Dict[str, str], columns: Sequence[str]) -> Optional[float]:
+    for column in columns:
+        value = parse_float_cell(row, column)
+        if value is not None:
+            return value
+    return None
+
+
+def mean_finite(values: Iterable[float]) -> Optional[float]:
+    finite = [value for value in values if math.isfinite(value)]
+    if not finite:
+        return None
+    return float(statistics.mean(finite))
+
+
+def std_finite(values: Iterable[float]) -> Optional[float]:
+    finite = [value for value in values if math.isfinite(value)]
+    if len(finite) < 2:
+        return None
+    return float(statistics.stdev(finite))
+
+
+def combine_uncertainties(*values: Optional[float]) -> float:
+    finite = [float(value) for value in values if value is not None and math.isfinite(float(value)) and value >= 0]
+    if not finite:
+        return 0.0
+    return math.sqrt(sum(value * value for value in finite))
+
+
+def mwh_resolution_power_uncertainty(row: Dict[str, str]) -> Optional[float]:
+    duration_s = first_finite(row, ["transmission_duration_s", "whole_visible_window_s", "stop_marker_elapsed_s"])
+    has_mwh = any(column in row for column in ["delta_mwh", "start_mwh", "end_mwh", "whole_visible_delta_mwh"])
+    if duration_s is None or duration_s <= 0 or not has_mwh:
+        return None
+    return 3.6 / duration_s
+
+
+def choose_power_log_row(rows: Sequence[Dict[str, str]], trial_id: str) -> Optional[Dict[str, str]]:
+    for row in rows:
+        if row.get("trial_id", "").strip() == trial_id:
+            return row
+    return rows[0] if rows else None
+
+
+def estimate_from_power_summary(row: Dict[str, str]) -> Dict[str, float]:
+    estimate: Dict[str, float] = {}
+
+    for column in POWER_ESTIMATE_COLUMNS:
+        value = parse_float_cell(row, column)
+        if value is not None:
+            estimate[column] = value
+
+    duration_s = first_finite(row, ["transmission_duration_s", "whole_visible_window_s", "stop_marker_elapsed_s"])
+    if duration_s is not None:
+        estimate.setdefault("sensing_window_s", duration_s)
+
+    sensing_power = first_finite(
+        row,
+        [
+            "estimated_avg_power_w",
+            "mean_active_sample_power_w",
+            "mean_sample_power_w",
+            "whole_visible_avg_power_w",
+            "stop_marker_avg_power_w",
+        ],
+    )
+    if sensing_power is not None:
+        estimate.setdefault("sensing_power_w", sensing_power)
+        estimate.setdefault("sensing_idle_power_w", 0.0)
+
+    sample_uncertainty = first_finite(
+        row,
+        [
+            "estimated_avg_power_uncertainty_w",
+            "std_active_sample_power_w",
+            "std_sample_power_w",
+        ],
+    )
+    resolution_uncertainty = mwh_resolution_power_uncertainty(row)
+    sensing_uncertainty = combine_uncertainties(sample_uncertainty, resolution_uncertainty)
+    if sensing_uncertainty > 0:
+        estimate.setdefault("sensing_power_uncertainty_w", sensing_uncertainty)
+
+    estimate.setdefault("compute_window_s", 0.0)
+    estimate.setdefault("compute_power_w", 0.0)
+    estimate.setdefault("compute_idle_power_w", 0.0)
+    return estimate
+
+
+def estimate_from_power_samples(rows: Sequence[Dict[str, str]]) -> Dict[str, float]:
+    numeric_rows = []
+    for row in rows:
+        power_w = parse_float_cell(row, "power_w")
+        time_s = parse_float_cell(row, "time_s")
+        if power_w is None:
+            continue
+        numeric_rows.append((row, power_w, time_s))
+
+    if not numeric_rows:
+        return {}
+
+    def marker_contains(row: Dict[str, str], *needles: str) -> bool:
+        marker = row.get("marker", "").strip().lower()
+        return any(needle in marker for needle in needles)
+
+    active_values = [
+        power_w
+        for row, power_w, _ in numeric_rows
+        if marker_contains(row, "active", "transmit_end_estimated")
+    ]
+    idle_values = [
+        power_w
+        for row, power_w, _ in numeric_rows
+        if marker_contains(row, "idle", "baseline")
+    ]
+    if not active_values:
+        active_values = [power_w for _, power_w, _ in numeric_rows]
+
+    estimate: Dict[str, float] = {
+        "sensing_power_w": mean_finite(active_values) or 0.0,
+        "sensing_idle_power_w": mean_finite(idle_values) if idle_values else 0.0,
+        "sensing_power_uncertainty_w": std_finite(active_values) or 0.0,
+        "sensing_idle_power_uncertainty_w": std_finite(idle_values) or 0.0,
+        "compute_window_s": 0.0,
+        "compute_power_w": 0.0,
+        "compute_idle_power_w": 0.0,
+    }
+
+    start_times = [
+        time_s
+        for row, _, time_s in numeric_rows
+        if time_s is not None and marker_contains(row, "start")
+    ]
+    end_times = [
+        time_s
+        for row, _, time_s in numeric_rows
+        if time_s is not None and marker_contains(row, "end", "stop")
+    ]
+    if start_times and end_times:
+        start_s = min(start_times)
+        end_s = min(time_s for time_s in end_times if time_s > start_s) if any(time_s > start_s for time_s in end_times) else None
+        if end_s is not None:
+            estimate["sensing_window_s"] = end_s - start_s
+    elif all(time_s is not None for _, _, time_s in numeric_rows):
+        times = [float(time_s) for _, _, time_s in numeric_rows if time_s is not None]
+        estimate["sensing_window_s"] = max(times) - min(times)
+
+    return estimate
+
+
+def load_power_log_estimate(power_log_path: str, trial_id: str) -> Dict[str, object]:
+    with open(power_log_path, "r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames is None:
+            return {"values": {}, "source": power_log_path}
+        reader.fieldnames = [(field or "").lstrip("\ufeff") for field in reader.fieldnames]
+        rows = [{(key or "").strip(): (value or "").strip() for key, value in row.items()} for row in reader]
+
+    if not rows:
+        return {"values": {}, "source": power_log_path}
+
+    fieldnames = set(rows[0].keys())
+    if "power_w" in fieldnames:
+        values = estimate_from_power_samples(rows)
+    else:
+        selected = choose_power_log_row(rows, trial_id)
+        values = estimate_from_power_summary(selected or {})
+    return {"values": values, "source": power_log_path}
+
+
+def parse_float_with_estimate(
+    row: Dict[str, str],
+    estimate: Dict[str, float],
+    column: str,
+    row_number: int,
+    default_value: Optional[float] = None,
+) -> float:
+    raw = row.get(column, "").strip()
+    if raw:
+        return parse_required_float(row, column, row_number)
+    value = estimate.get(column)
+    if value is not None and math.isfinite(value):
+        return float(value)
+    if default_value is not None:
+        return float(default_value)
+    raise ValueError(
+        f"Row {row_number}: column '{column}' is empty and could not be inferred from power_log_file."
+    )
+
+
+def parse_uncertainty(
+    row: Dict[str, str],
+    estimate: Dict[str, float],
+    column: str,
+    manual_uncertainty_w: float,
+    use_manual_default: bool,
+) -> float:
+    value = parse_optional_float(row, column)
+    if math.isfinite(value):
+        return value
+    value = estimate.get(column)
+    if value is not None and math.isfinite(value):
+        return max(0.0, float(value))
+    if use_manual_default:
+        return max(0.0, manual_uncertainty_w)
+    return 0.0
+
+
+def is_manual_power_source(power_log_file: str) -> bool:
+    lower = power_log_file.lower()
+    return any(token in lower for token in MANUAL_POWER_LOG_TOKENS)
+
+
+def load_trials(manifest_path: str, manual_power_uncertainty_w: float) -> List[EnergyTrial]:
+    repo_root = repo_root_from_this_file(__file__)
+    manifest_dir = os.path.abspath(os.path.dirname(manifest_path))
     trials: List[EnergyTrial] = []
     with open(manifest_path, "r", newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
             raise ValueError("Manifest CSV is missing a header row.")
+        reader.fieldnames = [(field or "").lstrip("\ufeff") for field in reader.fieldnames]
         ensure_manifest_header(reader.fieldnames)
 
         for row_number, row in enumerate(reader, start=2):
@@ -221,12 +519,82 @@ def load_trials(manifest_path: str) -> List[EnergyTrial]:
             bits_transmitted = parse_required_int(row, "bits_transmitted", row_number)
             bit_errors = parse_required_int(row, "bit_errors", row_number)
             bits_scored = parse_optional_int(row, "bits_scored", bits_transmitted)
-            sensing_window_s = parse_required_float(row, "sensing_window_s", row_number)
-            sensing_power_w = parse_required_float(row, "sensing_power_w", row_number)
-            sensing_idle_power_w = parse_required_float(row, "sensing_idle_power_w", row_number)
-            compute_window_s = parse_required_float(row, "compute_window_s", row_number)
-            compute_power_w = parse_required_float(row, "compute_power_w", row_number)
-            compute_idle_power_w = parse_required_float(row, "compute_idle_power_w", row_number)
+            power_log_file = row.get("power_log_file", "").strip()
+            power_estimate: Dict[str, float] = {}
+            power_source = "manifest"
+            if power_log_file:
+                resolved_power_log = resolve_power_log_path(repo_root, manifest_dir, power_log_file)
+                if resolved_power_log is not None:
+                    loaded_power = load_power_log_estimate(resolved_power_log, trial_id)
+                    power_estimate = dict(loaded_power["values"])
+                    power_source = f"power_log:{os.path.relpath(str(loaded_power['source']), repo_root)}"
+                elif is_manual_power_source(power_log_file):
+                    power_source = power_log_file
+                elif power_log_file.lower().endswith(".csv"):
+                    print(f"Warning: row {row_number} power_log_file was not found: {power_log_file}")
+
+            sensing_window_s = parse_float_with_estimate(row, power_estimate, "sensing_window_s", row_number)
+            sensing_power_w = parse_float_with_estimate(row, power_estimate, "sensing_power_w", row_number)
+            sensing_idle_power_w = parse_float_with_estimate(
+                row,
+                power_estimate,
+                "sensing_idle_power_w",
+                row_number,
+                default_value=0.0,
+            )
+            compute_window_s = parse_float_with_estimate(
+                row,
+                power_estimate,
+                "compute_window_s",
+                row_number,
+                default_value=0.0,
+            )
+            compute_power_w = parse_float_with_estimate(
+                row,
+                power_estimate,
+                "compute_power_w",
+                row_number,
+                default_value=0.0,
+            )
+            compute_idle_power_w = parse_float_with_estimate(
+                row,
+                power_estimate,
+                "compute_idle_power_w",
+                row_number,
+                default_value=0.0,
+            )
+            use_manual_uncertainty = is_manual_power_source(power_log_file)
+            sensing_power_uncertainty_w = parse_uncertainty(
+                row,
+                power_estimate,
+                "sensing_power_uncertainty_w",
+                manual_power_uncertainty_w,
+                use_manual_uncertainty,
+            )
+            sensing_idle_power_uncertainty_w = parse_uncertainty(
+                row,
+                power_estimate,
+                "sensing_idle_power_uncertainty_w",
+                manual_power_uncertainty_w,
+                use_manual_uncertainty,
+            )
+            compute_power_uncertainty_w = parse_uncertainty(
+                row,
+                power_estimate,
+                "compute_power_uncertainty_w",
+                manual_power_uncertainty_w,
+                use_manual_uncertainty,
+            )
+            compute_idle_power_uncertainty_w = parse_uncertainty(
+                row,
+                power_estimate,
+                "compute_idle_power_uncertainty_w",
+                manual_power_uncertainty_w,
+                use_manual_uncertainty,
+            )
+            if compute_window_s == 0 and compute_power_w == 0 and compute_idle_power_w == 0:
+                compute_power_uncertainty_w = 0.0
+                compute_idle_power_uncertainty_w = 0.0
             lux = parse_optional_float(row, "lux")
             distance_cm = parse_optional_float(row, "distance_cm")
 
@@ -253,12 +621,32 @@ def load_trials(manifest_path: str) -> List[EnergyTrial]:
 
             sensing_active_power_w = max(0.0, sensing_power_w - sensing_idle_power_w)
             compute_active_power_w = max(0.0, compute_power_w - compute_idle_power_w)
+            sensing_active_power_uncertainty_w = combine_uncertainties(
+                sensing_power_uncertainty_w,
+                sensing_idle_power_uncertainty_w,
+            )
+            compute_active_power_uncertainty_w = combine_uncertainties(
+                compute_power_uncertainty_w,
+                compute_idle_power_uncertainty_w,
+            )
             sensing_energy_j_gross = sensing_power_w * sensing_window_s
             sensing_energy_j_active = sensing_active_power_w * sensing_window_s
             compute_energy_j_gross = compute_power_w * compute_window_s
             compute_energy_j_active = compute_active_power_w * compute_window_s
             total_energy_j_gross = sensing_energy_j_gross + compute_energy_j_gross
             total_energy_j_active = sensing_energy_j_active + compute_energy_j_active
+            sensing_energy_j_gross_uncertainty = sensing_power_uncertainty_w * sensing_window_s
+            sensing_energy_j_active_uncertainty = sensing_active_power_uncertainty_w * sensing_window_s
+            compute_energy_j_gross_uncertainty = compute_power_uncertainty_w * compute_window_s
+            compute_energy_j_active_uncertainty = compute_active_power_uncertainty_w * compute_window_s
+            total_energy_j_gross_uncertainty = combine_uncertainties(
+                sensing_energy_j_gross_uncertainty,
+                compute_energy_j_gross_uncertainty,
+            )
+            total_energy_j_active_uncertainty = combine_uncertainties(
+                sensing_energy_j_active_uncertainty,
+                compute_energy_j_active_uncertainty,
+            )
 
             trials.append(
                 EnergyTrial(
@@ -277,8 +665,13 @@ def load_trials(manifest_path: str) -> List[EnergyTrial]:
                     compute_window_s=compute_window_s,
                     compute_power_w=compute_power_w,
                     compute_idle_power_w=compute_idle_power_w,
+                    sensing_power_uncertainty_w=sensing_power_uncertainty_w,
+                    sensing_idle_power_uncertainty_w=sensing_idle_power_uncertainty_w,
+                    compute_power_uncertainty_w=compute_power_uncertainty_w,
+                    compute_idle_power_uncertainty_w=compute_idle_power_uncertainty_w,
                     capture_file=row.get("capture_file", "").strip(),
-                    power_log_file=row.get("power_log_file", "").strip(),
+                    power_log_file=power_log_file,
+                    power_source=power_source,
                     decode_log_file=row.get("decode_log_file", "").strip(),
                     notes=row.get("notes", "").strip(),
                     score_fraction=score_fraction,
@@ -286,12 +679,20 @@ def load_trials(manifest_path: str) -> List[EnergyTrial]:
                     correct_bits=correct_bits,
                     sensing_active_power_w=sensing_active_power_w,
                     compute_active_power_w=compute_active_power_w,
+                    sensing_active_power_uncertainty_w=sensing_active_power_uncertainty_w,
+                    compute_active_power_uncertainty_w=compute_active_power_uncertainty_w,
                     sensing_energy_j_gross=sensing_energy_j_gross,
                     sensing_energy_j_active=sensing_energy_j_active,
                     compute_energy_j_gross=compute_energy_j_gross,
                     compute_energy_j_active=compute_energy_j_active,
                     total_energy_j_gross=total_energy_j_gross,
                     total_energy_j_active=total_energy_j_active,
+                    sensing_energy_j_gross_uncertainty=sensing_energy_j_gross_uncertainty,
+                    sensing_energy_j_active_uncertainty=sensing_energy_j_active_uncertainty,
+                    compute_energy_j_gross_uncertainty=compute_energy_j_gross_uncertainty,
+                    compute_energy_j_active_uncertainty=compute_energy_j_active_uncertainty,
+                    total_energy_j_gross_uncertainty=total_energy_j_gross_uncertainty,
+                    total_energy_j_active_uncertainty=total_energy_j_active_uncertainty,
                     sensing_active_j_per_tx_bit=safe_divide(sensing_energy_j_active, bits_transmitted),
                     compute_active_j_per_tx_bit=safe_divide(compute_energy_j_active, bits_transmitted),
                     gross_j_per_tx_bit=safe_divide(total_energy_j_gross, bits_transmitted),
@@ -300,6 +701,30 @@ def load_trials(manifest_path: str) -> List[EnergyTrial]:
                     active_j_per_scored_bit=safe_divide(total_energy_j_active, bits_scored),
                     gross_j_per_correct_bit=safe_divide(total_energy_j_gross, correct_bits),
                     active_j_per_correct_bit=safe_divide(total_energy_j_active, correct_bits),
+                    gross_j_per_tx_bit_uncertainty=safe_divide(
+                        total_energy_j_gross_uncertainty,
+                        bits_transmitted,
+                    ),
+                    active_j_per_tx_bit_uncertainty=safe_divide(
+                        total_energy_j_active_uncertainty,
+                        bits_transmitted,
+                    ),
+                    gross_j_per_scored_bit_uncertainty=safe_divide(
+                        total_energy_j_gross_uncertainty,
+                        bits_scored,
+                    ),
+                    active_j_per_scored_bit_uncertainty=safe_divide(
+                        total_energy_j_active_uncertainty,
+                        bits_scored,
+                    ),
+                    gross_j_per_correct_bit_uncertainty=safe_divide(
+                        total_energy_j_gross_uncertainty,
+                        correct_bits,
+                    ),
+                    active_j_per_correct_bit_uncertainty=safe_divide(
+                        total_energy_j_active_uncertainty,
+                        correct_bits,
+                    ),
                 )
             )
 
@@ -344,6 +769,17 @@ def aggregate_trials(
         total_compute_energy_active = sum(trial.compute_energy_j_active for trial in group_trials)
         total_energy_active = sum(trial.total_energy_j_active for trial in group_trials)
         total_energy_gross = sum(trial.total_energy_j_gross for trial in group_trials)
+        total_energy_active_uncertainty = rss(trial.total_energy_j_active_uncertainty for trial in group_trials)
+        total_energy_gross_uncertainty = rss(trial.total_energy_j_gross_uncertainty for trial in group_trials)
+        active_j_per_tx_bit_uncertainty_rms = rms_or_zero(
+            trial.active_j_per_tx_bit_uncertainty for trial in group_trials
+        )
+        active_j_per_correct_bit_uncertainty_rms = rms_or_zero(
+            trial.active_j_per_correct_bit_uncertainty for trial in group_trials
+        )
+        gross_j_per_tx_bit_uncertainty_rms = rms_or_zero(
+            trial.gross_j_per_tx_bit_uncertainty for trial in group_trials
+        )
 
         row.update(
             {
@@ -359,16 +795,35 @@ def aggregate_trials(
                 "pooled_active_j_per_tx_bit": safe_divide(total_energy_active, total_bits_transmitted),
                 "pooled_gross_j_per_tx_bit": safe_divide(total_energy_gross, total_bits_transmitted),
                 "pooled_active_j_per_correct_bit": safe_divide(total_energy_active, total_correct_bits),
+                "pooled_active_j_per_tx_bit_uncertainty": safe_divide(
+                    total_energy_active_uncertainty,
+                    total_bits_transmitted,
+                ),
+                "pooled_gross_j_per_tx_bit_uncertainty": safe_divide(
+                    total_energy_gross_uncertainty,
+                    total_bits_transmitted,
+                ),
+                "pooled_active_j_per_correct_bit_uncertainty": safe_divide(
+                    total_energy_active_uncertainty,
+                    total_correct_bits,
+                ),
                 "mean_ber": mean_or_nan(trial.ber for trial in group_trials),
                 "std_ber": std_or_zero(trial.ber for trial in group_trials),
                 "mean_active_j_per_tx_bit": mean_or_nan(trial.active_j_per_tx_bit for trial in group_trials),
                 "std_active_j_per_tx_bit": std_or_zero(trial.active_j_per_tx_bit for trial in group_trials),
+                "mean_active_j_per_tx_bit_uncertainty": active_j_per_tx_bit_uncertainty_rms,
+                "plot_active_j_per_tx_bit_yerr": combine_uncertainties(
+                    std_or_zero(trial.active_j_per_tx_bit for trial in group_trials),
+                    active_j_per_tx_bit_uncertainty_rms,
+                ),
+                "mean_gross_j_per_tx_bit_uncertainty": gross_j_per_tx_bit_uncertainty_rms,
                 "mean_active_j_per_correct_bit": mean_or_nan(
                     trial.active_j_per_correct_bit for trial in group_trials
                 ),
                 "std_active_j_per_correct_bit": std_or_zero(
                     trial.active_j_per_correct_bit for trial in group_trials
                 ),
+                "mean_active_j_per_correct_bit_uncertainty": active_j_per_correct_bit_uncertainty_rms,
                 "mean_sensing_active_j_per_tx_bit": mean_or_nan(
                     trial.sensing_active_j_per_tx_bit for trial in group_trials
                 ),
@@ -426,12 +881,19 @@ def write_summary_csv(path: str, rows: Sequence[Dict[str, object]], x_field: str
         "pooled_active_j_per_tx_bit",
         "pooled_gross_j_per_tx_bit",
         "pooled_active_j_per_correct_bit",
+        "pooled_active_j_per_tx_bit_uncertainty",
+        "pooled_gross_j_per_tx_bit_uncertainty",
+        "pooled_active_j_per_correct_bit_uncertainty",
         "mean_ber",
         "std_ber",
         "mean_active_j_per_tx_bit",
         "std_active_j_per_tx_bit",
+        "mean_active_j_per_tx_bit_uncertainty",
+        "plot_active_j_per_tx_bit_yerr",
+        "mean_gross_j_per_tx_bit_uncertainty",
         "mean_active_j_per_correct_bit",
         "std_active_j_per_correct_bit",
+        "mean_active_j_per_correct_bit_uncertainty",
         "mean_sensing_active_j_per_tx_bit",
         "mean_compute_active_j_per_tx_bit",
         "mean_score_fraction",
@@ -445,7 +907,7 @@ def plot_metric(
     x_field: str,
     series_fields: Sequence[str],
     y_field: str,
-    yerr_field: str,
+    yerr_field: Optional[str],
     out_path: str,
     title: str,
     ylabel: str,
@@ -460,10 +922,23 @@ def plot_metric(
 
     fig, ax = plt.subplots(figsize=(8.5, 5.2))
     for label, rows in grouped.items():
-        rows.sort(key=lambda item: float(item[x_field]))
-        xs = [float(item[x_field]) for item in rows]
-        ys = [float(item[y_field]) for item in rows]
-        yerr = [float(item[yerr_field]) for item in rows]
+        usable = []
+        for item in rows:
+            x_value = float(item[x_field])
+            y_value = float(item[y_field])
+            if math.isfinite(x_value) and math.isfinite(y_value):
+                usable.append(item)
+        if not usable:
+            continue
+        usable.sort(key=lambda item: float(item[x_field]))
+        xs = [float(item[x_field]) for item in usable]
+        ys = [float(item[y_field]) for item in usable]
+        yerr = None
+        if yerr_field is not None:
+            yerr = [
+                float(item[yerr_field]) if math.isfinite(float(item[yerr_field])) else 0.0
+                for item in usable
+            ]
         ax.errorbar(xs, ys, yerr=yerr, marker="o", linewidth=2, capsize=4, label=label)
 
     ax.set_xlabel(x_field.replace("_", " "))
@@ -511,12 +986,20 @@ def main() -> None:
         action="store_true",
         help="Disable plot generation.",
     )
+    ap.add_argument(
+        "--manual_power_uncertainty_w",
+        type=float,
+        default=DEFAULT_MANUAL_POWER_UNCERTAINTY_W,
+        help="Default +/- W uncertainty applied to manual USB-meter manifest readings when no uncertainty column is provided.",
+    )
     args = ap.parse_args()
 
     if not os.path.exists(args.manifest):
         raise FileNotFoundError(args.manifest)
+    if args.manual_power_uncertainty_w < 0:
+        raise ValueError("--manual_power_uncertainty_w must be >= 0.")
 
-    trials = load_trials(args.manifest)
+    trials = load_trials(args.manifest, manual_power_uncertainty_w=args.manual_power_uncertainty_w)
     summary_rows = aggregate_trials(trials, x_field=args.x_field, series_fields=args.series_fields)
 
     data_dir = os.path.join(repo_root, "data", "3.2")
@@ -552,7 +1035,7 @@ def main() -> None:
         x_field=args.x_field,
         series_fields=args.series_fields,
         y_field="mean_active_j_per_tx_bit",
-        yerr_field="std_active_j_per_tx_bit",
+        yerr_field="plot_active_j_per_tx_bit_yerr",
         out_path=energy_plot,
         title="Section 3.2 Active Energy per Transmitted Bit",
         ylabel="Active energy per transmitted bit (J/bit)",

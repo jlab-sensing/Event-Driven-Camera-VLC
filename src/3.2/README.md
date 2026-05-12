@@ -31,8 +31,11 @@ The key columns are:
 - `compute_window_s`: duration of the decode/processing power window
 - `compute_power_w`: average host compute power over that window
 - `compute_idle_power_w`: matched host idle baseline
+- `sensing_power_uncertainty_w`, `sensing_idle_power_uncertainty_w`, `compute_power_uncertainty_w`, `compute_idle_power_uncertainty_w`: optional +/- W uncertainty values used in energy-per-bit error bars
+- `power_log_file`: optional CSV path; when power fields are blank, the analyzer can import existing USB-meter summary/sample CSVs and fill the power/window values automatically
 
 The analyzer floor-clips idle-subtracted power at zero so small baseline noise does not create negative active energy.
+If `power_log_file` names a manual USB-meter reading instead of a CSV, the analyzer applies a default +/- 0.001 W reading uncertainty unless explicit uncertainty columns are filled.
 
 Starter rows for one stable EVK4 condition already live at:
 
