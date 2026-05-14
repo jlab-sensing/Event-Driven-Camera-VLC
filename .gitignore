@@ -16,3 +16,7 @@ __pycache__/
 
 # Extracted text artifacts
 *extracted.txt
+
+
+# download pages in the database for evk4
+docs/metavision/downloaded_pages/
