@@ -54,6 +54,23 @@ def load_truth_bits(bits_file: Optional[str], bits_literal: Optional[str]) -> np
     return np.array([1 if ch == "1" else 0 for ch in cleaned], dtype=np.uint8)
 
 
+def clean_bits(raw: str) -> str:
+    return "".join(ch for ch in raw if ch in "01")
+
+
+def load_optional_bits(bits_file: Optional[str], bits_literal: Optional[str]) -> np.ndarray:
+    if bits_file and bits_literal:
+        raise ValueError("Use either the bit file or literal bit argument, not both.")
+    if bits_file:
+        with open(bits_file, "r", encoding="utf-8") as f:
+            raw = f.read()
+    else:
+        raw = bits_literal or ""
+
+    cleaned = clean_bits(raw)
+    return np.array([1 if ch == "1" else 0 for ch in cleaned], dtype=np.uint8)
+
+
 # ----------------------------
 # Load per-file frequency metadata
 # ----------------------------
@@ -67,6 +84,12 @@ class ManifestEntry:
     total_symbols: int
     duration_s: float
     output_file: str
+    payload_bits: str = ""
+    preamble_bits: str = ""
+    frame_bits: str = ""
+    payload_bits_count: int = 0
+    preamble_bits_count: int = 0
+    frame_bits_count: int = 0
 
 
 @dataclass
@@ -244,6 +267,12 @@ def load_transmission_manifest(path: str) -> Dict[float, ManifestEntry]:
 
         for row in reader:
             requested_frequency_hz = float(row["requested_frequency_hz"])
+            payload_bits = (row.get("payload_bits") or row.get("truth_bits") or "").strip()
+            preamble_bits = (row.get("preamble_bits") or "").strip()
+            frame_bits = (row.get("frame_bits") or "").strip()
+            payload_bits_count = int(row.get("payload_bits_count") or len(payload_bits))
+            preamble_bits_count = int(row.get("preamble_bits_count") or len(preamble_bits))
+            frame_bits_count = int(row.get("frame_bits_count") or len(frame_bits))
             manifest[round(requested_frequency_hz, 6)] = ManifestEntry(
                 requested_frequency_hz=requested_frequency_hz,
                 actual_frequency_hz=float(row["actual_frequency_hz"]),
@@ -253,6 +282,12 @@ def load_transmission_manifest(path: str) -> Dict[float, ManifestEntry]:
                 total_symbols=int(row["total_symbols"]),
                 duration_s=float(row["duration_s"]),
                 output_file=row["output_file"].strip(),
+                payload_bits=payload_bits,
+                preamble_bits=preamble_bits,
+                frame_bits=frame_bits,
+                payload_bits_count=payload_bits_count,
+                preamble_bits_count=preamble_bits_count,
+                frame_bits_count=frame_bits_count,
             )
 
     return manifest
@@ -260,6 +295,14 @@ def load_transmission_manifest(path: str) -> Dict[float, ManifestEntry]:
 
 def lookup_manifest_entry(manifest: Dict[float, ManifestEntry], requested_frequency_hz: float) -> Optional[ManifestEntry]:
     return manifest.get(round(float(requested_frequency_hz), 6))
+
+
+def manifest_frame_bit_count(manifest_entry: ManifestEntry, fallback_message_len_bits: int) -> int:
+    if int(manifest_entry.frame_bits_count) > 0:
+        return int(manifest_entry.frame_bits_count)
+    if manifest_entry.frame_bits:
+        return len(manifest_entry.frame_bits)
+    return int(fallback_message_len_bits)
 
 
 def extract_frequency_from_name(filename: str, pattern: str) -> Optional[float]:
@@ -436,7 +479,8 @@ def find_manifest_analysis_window(
     if actual_frequency_hz <= 0.0:
         raise ValueError("Manifest actual_frequency_hz must be > 0")
 
-    payload_duration_s = float((manifest_entry.message_repeats * message_len_bits) / actual_frequency_hz)
+    frame_len_bits = manifest_frame_bit_count(manifest_entry, message_len_bits)
+    payload_duration_s = float((manifest_entry.message_repeats * frame_len_bits) / actual_frequency_hz)
     guard_duration_s = float(manifest_entry.guard_bits / actual_frequency_hz)
     payload_start_s, payload_end_s = find_peak_activity_window(
         ts_rel_s=ts_rel_s,
@@ -557,6 +601,16 @@ def compare_candidates(current: Optional["CandidateResult"], challenger: "Candid
     if current is None:
         return True
 
+    current_sync_bits = int(getattr(current, "sync_preamble_bits_scored", 0)) + int(current.n_symbols_scored)
+    challenger_sync_bits = int(getattr(challenger, "sync_preamble_bits_scored", 0)) + int(challenger.n_symbols_scored)
+    if current_sync_bits > int(current.n_symbols_scored) or challenger_sync_bits > int(challenger.n_symbols_scored):
+        current_sync_errors = int(getattr(current, "sync_preamble_errors", 0)) + int(current.n_bit_errors)
+        challenger_sync_errors = int(getattr(challenger, "sync_preamble_errors", 0)) + int(challenger.n_bit_errors)
+        current_sync_ber = current_sync_errors / max(1, current_sync_bits)
+        challenger_sync_ber = challenger_sync_errors / max(1, challenger_sync_bits)
+        if challenger_sync_ber != current_sync_ber:
+            return challenger_sync_ber < current_sync_ber
+
     current_mar = -1.0 if not np.isfinite(current.mar) else float(current.mar)
     challenger_mar = -1.0 if not np.isfinite(challenger.mar) else float(challenger.mar)
     if challenger_mar != current_mar:
@@ -614,6 +668,9 @@ class CandidateResult:
     n_bit_errors: int
     ber: float
     decoded_bits: np.ndarray
+    sync_preamble_errors: int = 0
+    sync_preamble_bits_scored: int = 0
+    sync_preamble_ber: float = float("nan")
 
 
 def score_decoded_messages(
@@ -669,6 +726,110 @@ def score_decoded_messages(
         mar,
         ber,
     )
+
+
+def score_synced_decoded_bitstream(
+    decoded_bits: np.ndarray,
+    preamble_bits: np.ndarray,
+    payload_bits: np.ndarray,
+    phase_s: float,
+    decode_rate_hz: float,
+    target_rate_hz: float,
+    threshold: float,
+    init_bit: int,
+    expected_message_count: Optional[int],
+) -> Optional[CandidateResult]:
+    preamble_len = int(preamble_bits.size)
+    payload_len = int(payload_bits.size)
+    frame_len = preamble_len + payload_len
+    if preamble_len <= 0 or payload_len <= 0 or decoded_bits.size < frame_len:
+        return None
+
+    best: Optional[CandidateResult] = None
+    for offset in range(frame_len):
+        usable = decoded_bits[offset:]
+        n_frames_available = int(usable.size // frame_len)
+        if n_frames_available <= 0:
+            continue
+
+        usable = usable[: n_frames_available * frame_len]
+        frames = usable.reshape(n_frames_available, frame_len)
+        preamble_part = frames[:, :preamble_len]
+        payload_part = frames[:, preamble_len:]
+
+        preamble_errors_per_frame = np.sum(preamble_part != preamble_bits[np.newaxis, :], axis=1).astype(np.int64)
+        payload_errors_per_frame = np.sum(payload_part != payload_bits[np.newaxis, :], axis=1).astype(np.int64)
+        payload_correct = (payload_errors_per_frame == 0).astype(np.int64)
+
+        if expected_message_count is not None and expected_message_count > 0:
+            n_messages = int(expected_message_count)
+            if n_frames_available < n_messages:
+                continue
+
+            cumulative_preamble_errors = np.concatenate(([0], np.cumsum(preamble_errors_per_frame, dtype=np.int64)))
+            cumulative_payload_errors = np.concatenate(([0], np.cumsum(payload_errors_per_frame, dtype=np.int64)))
+            cumulative_payload_correct = np.concatenate(([0], np.cumsum(payload_correct, dtype=np.int64)))
+
+            window_preamble_errors = cumulative_preamble_errors[n_messages:] - cumulative_preamble_errors[:-n_messages]
+            window_payload_errors = cumulative_payload_errors[n_messages:] - cumulative_payload_errors[:-n_messages]
+            window_payload_correct = cumulative_payload_correct[n_messages:] - cumulative_payload_correct[:-n_messages]
+
+            best_preamble_errors = int(np.min(window_preamble_errors))
+            starts = np.where(window_preamble_errors == best_preamble_errors)[0]
+            if starts.size > 1:
+                best_correct = int(np.max(window_payload_correct[starts]))
+                starts = starts[window_payload_correct[starts] == best_correct]
+            if starts.size > 1:
+                best_payload_errors = int(np.min(window_payload_errors[starts]))
+                starts = starts[window_payload_errors[starts] == best_payload_errors]
+            frame_start_index = int(starts[0])
+            frame_end_index = frame_start_index + n_messages
+        else:
+            frame_start_index = 0
+            frame_end_index = n_frames_available
+            n_messages = n_frames_available
+
+        selected_payload = payload_part[frame_start_index:frame_end_index]
+        selected_preamble_errors = int(np.sum(preamble_errors_per_frame[frame_start_index:frame_end_index]))
+        selected_payload_errors = int(np.sum(payload_errors_per_frame[frame_start_index:frame_end_index]))
+        selected_payload_correct = int(np.sum(payload_correct[frame_start_index:frame_end_index]))
+        scored_bits = selected_payload.reshape(-1).astype(np.uint8)
+
+        preamble_bits_scored = int(n_messages * preamble_len)
+        sync_preamble_ber = (
+            float(selected_preamble_errors / preamble_bits_scored)
+            if preamble_bits_scored > 0
+            else float("nan")
+        )
+        mar = float(selected_payload_correct / n_messages) if n_messages > 0 else float("nan")
+        ber = float(selected_payload_errors / scored_bits.size) if scored_bits.size > 0 else float("nan")
+
+        candidate = CandidateResult(
+            decode_rate_hz=float(decode_rate_hz),
+            rate_error_fraction=relative_frequency_error(float(decode_rate_hz), float(target_rate_hz)),
+            phase_s=float(phase_s),
+            message_offset_bits=int(offset + frame_start_index * frame_len + preamble_len),
+            init_bit=int(init_bit),
+            threshold=float(threshold),
+            n_symbols_total=int(decoded_bits.size),
+            n_symbols_scored=int(scored_bits.size),
+            n_messages_available=int(n_frames_available),
+            expected_message_count=int(expected_message_count) if expected_message_count is not None else 0,
+            n_messages=int(n_messages),
+            n_correct_messages=int(selected_payload_correct),
+            mar=mar,
+            n_bit_errors=int(selected_payload_errors),
+            ber=ber,
+            decoded_bits=scored_bits.copy(),
+            sync_preamble_errors=int(selected_preamble_errors),
+            sync_preamble_bits_scored=int(preamble_bits_scored),
+            sync_preamble_ber=float(sync_preamble_ber),
+        )
+
+        if compare_candidates(best, candidate):
+            best = candidate
+
+    return best
 
 
 def score_symbol_stream(
@@ -742,6 +903,67 @@ def score_symbol_stream(
     return best
 
 
+def activity_threshold_candidates(sym_sums: np.ndarray) -> np.ndarray:
+    if sym_sums.size == 0:
+        return np.array([], dtype=np.float64)
+
+    candidates: List[float] = []
+    auto_thr = auto_threshold(sym_sums)
+    if np.isfinite(auto_thr):
+        candidates.append(float(auto_thr))
+
+    for q in (0.35, 0.45, 0.55, 0.65, 0.75):
+        candidates.append(float(np.quantile(sym_sums, q)))
+
+    lo = float(np.min(sym_sums))
+    hi = float(np.max(sym_sums))
+    unique: List[float] = []
+    for value in candidates:
+        if not np.isfinite(value):
+            continue
+        clipped = float(np.clip(value, lo, hi))
+        if any(np.isclose(clipped, existing, rtol=1e-9, atol=1e-9) for existing in unique):
+            continue
+        unique.append(clipped)
+    return np.array(unique, dtype=np.float64)
+
+
+def score_synced_symbol_stream(
+    sym_sums: np.ndarray,
+    preamble_bits: np.ndarray,
+    payload_bits: np.ndarray,
+    phase_s: float,
+    decode_rate_hz: float,
+    target_rate_hz: float,
+    expected_message_count: Optional[int],
+) -> Optional[CandidateResult]:
+    frame_len = int(preamble_bits.size + payload_bits.size)
+    if sym_sums.size < frame_len:
+        return None
+
+    thresholds = activity_threshold_candidates(sym_sums)
+    if thresholds.size == 0:
+        return None
+
+    best: Optional[CandidateResult] = None
+    for threshold in thresholds:
+        decoded_bits = (sym_sums >= threshold).astype(np.uint8)
+        candidate = score_synced_decoded_bitstream(
+            decoded_bits=decoded_bits,
+            preamble_bits=preamble_bits,
+            payload_bits=payload_bits,
+            phase_s=float(phase_s),
+            decode_rate_hz=float(decode_rate_hz),
+            target_rate_hz=float(target_rate_hz),
+            threshold=float(threshold),
+            init_bit=int(decoded_bits[0]) if decoded_bits.size else 0,
+            expected_message_count=expected_message_count,
+        )
+        if candidate is not None and compare_candidates(best, candidate):
+            best = candidate
+    return best
+
+
 def search_best_decode(
     t_bins: np.ndarray,
     counts: np.ndarray,
@@ -779,6 +1001,84 @@ def search_best_decode(
         if candidate is not None and compare_candidates(best, candidate):
             best = candidate
 
+    return best
+
+
+def candidate_rate_grid(
+    nominal_rate_hz: float,
+    rate_min_scale: float,
+    rate_max_scale: float,
+    rate_steps: int,
+    max_rate_drift_fraction: float,
+) -> np.ndarray:
+    if nominal_rate_hz <= 0:
+        raise ValueError("nominal_rate_hz must be > 0")
+    if rate_steps <= 0:
+        raise ValueError("rate_steps must be > 0")
+    if rate_min_scale <= 0 or rate_max_scale <= 0 or rate_max_scale < rate_min_scale:
+        raise ValueError("rate scales must be > 0 and max >= min")
+
+    candidate_rates = np.linspace(
+        nominal_rate_hz * rate_min_scale,
+        nominal_rate_hz * rate_max_scale,
+        rate_steps,
+        dtype=np.float64,
+    )
+    if np.isfinite(max_rate_drift_fraction) and max_rate_drift_fraction > 0:
+        min_rate_hz = nominal_rate_hz * max(0.0, 1.0 - max_rate_drift_fraction)
+        max_rate_hz = nominal_rate_hz * (1.0 + max_rate_drift_fraction)
+        candidate_rates = candidate_rates[(candidate_rates >= min_rate_hz) & (candidate_rates <= max_rate_hz)]
+        if candidate_rates.size == 0:
+            candidate_rates = np.array([float(nominal_rate_hz)], dtype=np.float64)
+    return candidate_rates
+
+
+def search_best_synced_activity_decode(
+    t_bins: np.ndarray,
+    counts: np.ndarray,
+    duration_s: float,
+    nominal_rate_hz: float,
+    preamble_bits: np.ndarray,
+    payload_bits: np.ndarray,
+    phase_steps: int,
+    rate_min_scale: float,
+    rate_max_scale: float,
+    rate_steps: int,
+    expected_message_count: Optional[int],
+    max_rate_drift_fraction: float,
+) -> Optional[CandidateResult]:
+    if phase_steps <= 0:
+        raise ValueError("phase_steps must be > 0")
+
+    best: Optional[CandidateResult] = None
+    for decode_rate_hz in candidate_rate_grid(
+        nominal_rate_hz=nominal_rate_hz,
+        rate_min_scale=rate_min_scale,
+        rate_max_scale=rate_max_scale,
+        rate_steps=rate_steps,
+        max_rate_drift_fraction=max_rate_drift_fraction,
+    ):
+        symbol_period_s = 1.0 / float(decode_rate_hz)
+        phases = np.linspace(0.0, symbol_period_s, phase_steps, endpoint=False)
+        for phase_s in phases:
+            sym_sums = integrate_symbol_counts(
+                t_bins=t_bins,
+                counts=counts,
+                duration_s=duration_s,
+                symbol_rate_hz=float(decode_rate_hz),
+                start_time_s=float(phase_s),
+            )
+            candidate = score_synced_symbol_stream(
+                sym_sums=sym_sums,
+                preamble_bits=preamble_bits,
+                payload_bits=payload_bits,
+                phase_s=float(phase_s),
+                decode_rate_hz=float(decode_rate_hz),
+                target_rate_hz=float(nominal_rate_hz),
+                expected_message_count=expected_message_count,
+            )
+            if candidate is not None and compare_candidates(best, candidate):
+                best = candidate
     return best
 
 
@@ -890,6 +1190,50 @@ def score_transition_stream(
     return best
 
 
+def score_synced_transition_stream(
+    boundary_counts: np.ndarray,
+    preamble_bits: np.ndarray,
+    payload_bits: np.ndarray,
+    phase_s: float,
+    decode_rate_hz: float,
+    target_rate_hz: float,
+    expected_message_count: Optional[int],
+) -> Optional[CandidateResult]:
+    frame_len = int(preamble_bits.size + payload_bits.size)
+    if boundary_counts.size + 1 < frame_len:
+        return None
+
+    thresholds = transition_threshold_candidates(boundary_counts, target_rate_hz)
+    if thresholds.size == 0:
+        return None
+
+    best: Optional[CandidateResult] = None
+    for threshold in thresholds:
+        edge_bits = (boundary_counts >= threshold).astype(np.uint8)
+
+        for init_bit in (0, 1):
+            decoded_bits = np.empty(edge_bits.size + 1, dtype=np.uint8)
+            decoded_bits[0] = np.uint8(init_bit)
+            for i, edge in enumerate(edge_bits, start=1):
+                decoded_bits[i] = decoded_bits[i - 1] ^ np.uint8(edge)
+
+            candidate = score_synced_decoded_bitstream(
+                decoded_bits=decoded_bits,
+                preamble_bits=preamble_bits,
+                payload_bits=payload_bits,
+                phase_s=float(phase_s),
+                decode_rate_hz=float(decode_rate_hz),
+                target_rate_hz=float(target_rate_hz),
+                threshold=float(threshold),
+                init_bit=int(init_bit),
+                expected_message_count=expected_message_count,
+            )
+            if candidate is not None and compare_candidates(best, candidate):
+                best = candidate
+
+    return best
+
+
 def search_best_transition_decode(
     t_bins: np.ndarray,
     counts: np.ndarray,
@@ -954,6 +1298,59 @@ def search_best_transition_decode(
     return best
 
 
+def search_best_synced_transition_decode(
+    t_bins: np.ndarray,
+    counts: np.ndarray,
+    duration_s: float,
+    nominal_rate_hz: float,
+    preamble_bits: np.ndarray,
+    payload_bits: np.ndarray,
+    phase_steps: int,
+    rate_min_scale: float,
+    rate_max_scale: float,
+    rate_steps: int,
+    edge_window_fraction: float,
+    expected_message_count: Optional[int],
+    max_rate_drift_fraction: float,
+) -> Optional[CandidateResult]:
+    if phase_steps <= 0:
+        raise ValueError("phase_steps must be > 0")
+    if edge_window_fraction <= 0:
+        raise ValueError("edge_window_fraction must be > 0")
+
+    best: Optional[CandidateResult] = None
+    for decode_rate_hz in candidate_rate_grid(
+        nominal_rate_hz=nominal_rate_hz,
+        rate_min_scale=rate_min_scale,
+        rate_max_scale=rate_max_scale,
+        rate_steps=rate_steps,
+        max_rate_drift_fraction=max_rate_drift_fraction,
+    ):
+        symbol_period_s = 1.0 / float(decode_rate_hz)
+        phases = np.linspace(0.0, symbol_period_s, phase_steps, endpoint=False)
+        for phase_s in phases:
+            boundary_counts = integrate_boundary_counts(
+                t_bins=t_bins,
+                counts=counts,
+                duration_s=duration_s,
+                symbol_rate_hz=float(decode_rate_hz),
+                start_time_s=float(phase_s),
+                edge_window_fraction=edge_window_fraction,
+            )
+            candidate = score_synced_transition_stream(
+                boundary_counts=boundary_counts,
+                preamble_bits=preamble_bits,
+                payload_bits=payload_bits,
+                phase_s=float(phase_s),
+                decode_rate_hz=float(decode_rate_hz),
+                target_rate_hz=float(nominal_rate_hz),
+                expected_message_count=expected_message_count,
+            )
+            if candidate is not None and compare_candidates(best, candidate):
+                best = candidate
+    return best
+
+
 # ----------------------------
 # Save summary results
 # ----------------------------
@@ -1000,6 +1397,9 @@ class FileResult:
     mar: float
     n_bit_errors: int
     ber: float
+    sync_preamble_bits_scored: int
+    sync_preamble_errors: int
+    sync_preamble_ber: float
 
 
 def aggregate_by_frequency(rows: List[FileResult]) -> List[dict]:
@@ -1095,6 +1495,7 @@ def main() -> None:
     default_input_dir = os.path.abspath(os.path.join(root, "..", "captures", "experiment_replication_3_1"))
     default_manifest_csv = os.path.join(root, "pru1_pwm_CSK_1000Hz", "userspace", "s31_replication_manifest.csv")
     default_calibration_dir = os.path.join(root, "data", "3.1", "replication_calibration")
+    default_preamble_bits = "10" * 16
 
     ap = argparse.ArgumentParser(
         description="Analyze the Section 3.1 frequency-sweep replication experiment and compute MAR/BER."
@@ -1113,6 +1514,16 @@ def main() -> None:
         "--bits",
         default=None,
         help="Literal 0/1 truth message bits for one repeated message.",
+    )
+    ap.add_argument(
+        "--preamble_bits_file",
+        default=None,
+        help="Optional file containing sync preamble bits for synced decode modes.",
+    )
+    ap.add_argument(
+        "--preamble_bits",
+        default=default_preamble_bits,
+        help="Sync preamble bits used by synced decode modes. Defaults to a 32-bit 1010... preamble.",
     )
     ap.add_argument(
         "--freq_map_csv",
@@ -1150,6 +1561,14 @@ def main() -> None:
         help="Regex with one capture group for extracting frequency from filenames.",
     )
     ap.add_argument(
+        "--roi",
+        nargs=4,
+        type=int,
+        default=None,
+        metavar=("X0", "Y0", "X1", "Y1"),
+        help="Optional manual ROI. Example: --roi 544 320 672 448.",
+    )
+    ap.add_argument(
         "--symbol_rate_scale",
         type=float,
         default=1.0,
@@ -1163,9 +1582,9 @@ def main() -> None:
     )
     ap.add_argument(
         "--decode_mode",
-        choices=("activity", "transition", "hybrid_locked"),
+        choices=("activity", "transition", "synced_activity", "synced_transition", "hybrid_locked"),
         default="activity",
-        help="Decode from per-symbol activity counts, transition bursts, or a locked hybrid rule.",
+        help="Decode from activity, transitions, preamble-synced activity/transitions, or a locked hybrid rule.",
     )
     ap.add_argument(
         "--phase_steps",
@@ -1257,6 +1676,10 @@ def main() -> None:
     truth_message_bits = load_truth_bits(args.bits_file, args.bits)
     if truth_message_bits.size < 2:
         raise ValueError("Truth message must contain at least 2 bits.")
+    cli_preamble_bits = load_optional_bits(
+        args.preamble_bits_file,
+        None if args.preamble_bits_file else args.preamble_bits,
+    )
 
     if not os.path.isdir(args.input_dir):
         raise FileNotFoundError(args.input_dir)
@@ -1308,6 +1731,9 @@ def main() -> None:
             )
 
         manifest_entry = lookup_manifest_entry(manifest, float(frequency_hz))
+        preamble_bits = cli_preamble_bits
+        if manifest_entry is not None and manifest_entry.preamble_bits:
+            preamble_bits = load_optional_bits(None, manifest_entry.preamble_bits)
         calibration_entry = calibration.get(raw_file)
         symbol_rate_hz = float("nan")
         symbol_rate_source = "unresolved"
@@ -1326,7 +1752,10 @@ def main() -> None:
 
         roi: Optional[tuple[int, int, int, int]] = None
         roi_source = "full_frame"
-        if calibration_entry is not None:
+        if args.roi is not None:
+            roi = tuple(int(value) for value in args.roi)
+            roi_source = "manual_cli"
+        elif calibration_entry is not None:
             roi = (
                 calibration_entry.roi_x0,
                 calibration_entry.roi_y0,
@@ -1405,7 +1834,42 @@ def main() -> None:
             duration_s=duration_s,
         )
 
-        if decode_plan.decode_mode == "transition":
+        if decode_plan.decode_mode == "synced_activity":
+            if preamble_bits.size == 0:
+                raise ValueError("synced_activity requires --preamble_bits or a manifest preamble_bits column.")
+            best = search_best_synced_activity_decode(
+                t_bins=t_bins,
+                counts=counts,
+                duration_s=duration_s,
+                nominal_rate_hz=symbol_rate_hz,
+                preamble_bits=preamble_bits,
+                payload_bits=truth_message_bits,
+                phase_steps=args.phase_steps,
+                rate_min_scale=args.transition_rate_min_scale,
+                rate_max_scale=args.transition_rate_max_scale,
+                rate_steps=args.transition_rate_steps,
+                expected_message_count=expected_message_count,
+                max_rate_drift_fraction=args.transition_max_rate_drift_fraction,
+            )
+        elif decode_plan.decode_mode == "synced_transition":
+            if preamble_bits.size == 0:
+                raise ValueError("synced_transition requires --preamble_bits or a manifest preamble_bits column.")
+            best = search_best_synced_transition_decode(
+                t_bins=t_bins,
+                counts=counts,
+                duration_s=duration_s,
+                nominal_rate_hz=symbol_rate_hz,
+                preamble_bits=preamble_bits,
+                payload_bits=truth_message_bits,
+                phase_steps=args.phase_steps,
+                rate_min_scale=args.transition_rate_min_scale,
+                rate_max_scale=args.transition_rate_max_scale,
+                rate_steps=args.transition_rate_steps,
+                edge_window_fraction=args.edge_window_fraction,
+                expected_message_count=expected_message_count,
+                max_rate_drift_fraction=args.transition_max_rate_drift_fraction,
+            )
+        elif decode_plan.decode_mode == "transition":
             best = search_best_transition_decode(
                 t_bins=t_bins,
                 counts=counts,
@@ -1478,6 +1942,9 @@ def main() -> None:
             mar=float(best.mar),
             n_bit_errors=int(best.n_bit_errors),
             ber=float(best.ber),
+            sync_preamble_bits_scored=int(best.sync_preamble_bits_scored),
+            sync_preamble_errors=int(best.sync_preamble_errors),
+            sync_preamble_ber=float(best.sync_preamble_ber),
         )
         results.append(result)
 
@@ -1513,7 +1980,8 @@ def main() -> None:
             f"available={best.n_messages_available} "
             f"messages={best.n_messages} "
             f"MAR={best.mar:.3f} "
-            f"BER={best.ber:.4f}"
+            f"BER={best.ber:.4f} "
+            f"sync_preBER={best.sync_preamble_ber:.4f}"
         )
 
     results.sort(key=lambda row: (row.frequency_hz, row.trial))
@@ -1564,6 +2032,9 @@ def main() -> None:
             "mar",
             "n_bit_errors",
             "ber",
+            "sync_preamble_bits_scored",
+            "sync_preamble_errors",
+            "sync_preamble_ber",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()

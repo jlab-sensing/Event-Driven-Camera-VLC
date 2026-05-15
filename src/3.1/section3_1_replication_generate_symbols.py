@@ -1,14 +1,21 @@
 import argparse
 import csv
 import os
+import sys
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
+
+THIS_DIR = os.path.abspath(os.path.dirname(__file__))
+SRC_DIR = os.path.abspath(os.path.join(THIS_DIR, ".."))
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
 
 from io_utils import repo_root_from_this_file
 
 
 DEFAULT_BITS = "10110010110"
 DEFAULT_FREQUENCIES_HZ = [500.0, 1000.0, 1500.0, 2000.0, 2500.0, 3000.0]
+DEFAULT_PREAMBLE_BITS = "10" * 16
 
 
 def load_truth_bits(bits_file: Optional[str], bits_literal: Optional[str]) -> str:
@@ -31,6 +38,9 @@ def load_truth_bits(bits_file: Optional[str], bits_literal: Optional[str]) -> st
 
 @dataclass
 class SymbolPlan:
+    payload_bits: str
+    preamble_bits: str
+    frame_bits: str
     requested_frequency_hz: float
     actual_frequency_hz: float
     symbols_per_bit: int
@@ -103,6 +113,12 @@ def build_duration_symbol_stream(
     return symbol_stream, int(message_repeats), int(duration_pad_symbols)
 
 
+def clean_optional_bits(raw: Optional[str]) -> str:
+    if raw is None:
+        return ""
+    return "".join(ch for ch in raw if ch in "01")
+
+
 def main() -> None:
     root = repo_root_from_this_file(__file__)
     default_output_dir = os.path.join(root, "pru1_pwm_CSK_1000Hz", "userspace")
@@ -127,6 +143,14 @@ def main() -> None:
         type=float,
         default=DEFAULT_FREQUENCIES_HZ,
         help="Requested OOK bit frequencies to generate.",
+    )
+    ap.add_argument(
+        "--preamble_bits",
+        default="",
+        help=(
+            "Optional sync preamble prepended before each payload message. "
+            f"Use '{DEFAULT_PREAMBLE_BITS}' for the standard 32-bit alternating preamble."
+        ),
     )
     ap.add_argument(
         "--symbol_us",
@@ -195,6 +219,10 @@ def main() -> None:
 
     os.makedirs(args.out_dir, exist_ok=True)
     truth_bits = load_truth_bits(args.bits_file, args.bits)
+    preamble_bits = clean_optional_bits(args.preamble_bits)
+    if preamble_bits and len(preamble_bits) < 4:
+        raise ValueError("--preamble_bits should be at least 4 bits when enabled.")
+    frame_bits = preamble_bits + truth_bits
 
     if not os.path.exists(args.bits_file):
         with open(args.bits_file, "w", encoding="utf-8") as f:
@@ -212,7 +240,7 @@ def main() -> None:
         duration_pad_symbols = 0
         if args.target_duration_s is None:
             symbol_stream = build_symbol_stream(
-                truth_bits=truth_bits,
+                truth_bits=frame_bits,
                 on_symbol=args.on_symbol,
                 off_symbol=args.off_symbol,
                 symbols_per_bit=symbols_per_bit,
@@ -222,7 +250,7 @@ def main() -> None:
         else:
             target_total_symbols = int(round((args.target_duration_s * 1_000_000.0) / args.symbol_us))
             symbol_stream, message_repeats, duration_pad_symbols = build_duration_symbol_stream(
-                truth_bits=truth_bits,
+                truth_bits=frame_bits,
                 on_symbol=args.on_symbol,
                 off_symbol=args.off_symbol,
                 symbols_per_bit=symbols_per_bit,
@@ -242,6 +270,9 @@ def main() -> None:
         duration_s = (total_symbols * args.symbol_us) * 1e-6
         plans.append(
             SymbolPlan(
+                payload_bits=truth_bits,
+                preamble_bits=preamble_bits,
+                frame_bits=frame_bits,
                 requested_frequency_hz=float(requested_freq_hz),
                 actual_frequency_hz=float(actual_freq_hz),
                 symbols_per_bit=int(symbols_per_bit),
@@ -258,6 +289,7 @@ def main() -> None:
             f"Saved {file_name} "
             f"(requested={requested_freq_hz:.1f}Hz, actual={actual_freq_hz:.3f}Hz, "
             f"symbols_per_bit={symbols_per_bit}, repeats={message_repeats}, "
+            f"frame_bits={len(frame_bits)}, preamble_bits={len(preamble_bits)}, "
             f"duration={duration_s:.3f}s)"
         )
 
@@ -266,6 +298,12 @@ def main() -> None:
     with open(manifest_path, "w", newline="", encoding="utf-8") as f:
         fieldnames = [
             "truth_bits",
+            "payload_bits",
+            "preamble_bits",
+            "frame_bits",
+            "payload_bits_count",
+            "preamble_bits_count",
+            "frame_bits_count",
             "requested_frequency_hz",
             "actual_frequency_hz",
             "symbols_per_bit",
@@ -281,7 +319,13 @@ def main() -> None:
         writer.writeheader()
         for plan in plans:
             writer.writerow({
-                "truth_bits": truth_bits,
+                "truth_bits": plan.payload_bits,
+                "payload_bits": plan.payload_bits,
+                "preamble_bits": plan.preamble_bits,
+                "frame_bits": plan.frame_bits,
+                "payload_bits_count": len(plan.payload_bits),
+                "preamble_bits_count": len(plan.preamble_bits),
+                "frame_bits_count": len(plan.frame_bits),
                 "requested_frequency_hz": plan.requested_frequency_hz,
                 "actual_frequency_hz": plan.actual_frequency_hz,
                 "symbols_per_bit": plan.symbols_per_bit,
