@@ -21,6 +21,7 @@ This index intentionally does not restrict future internet use. It is a quick lo
 | Topic | Official URL | Local notes |
 |---|---|---|
 | EVK4 | https://docs.prophesee.ai/stable/hw/evk/evk4.html | [02_evk4_and_imx636.md](downloaded_pages/02_evk4_and_imx636.md) |
+| EVK4 HD camera manual | local PDF | [manuals/EVK4_HD_Prophesee_Evaluation_Kit_Camera_Manual.pdf](manuals/EVK4_HD_Prophesee_Evaluation_Kit_Camera_Manual.pdf) |
 | IMX636 sensor | https://docs.prophesee.ai/stable/hw/sensors/imx636.html | [02_evk4_and_imx636.md](downloaded_pages/02_evk4_and_imx636.md) |
 | Hardware product list | https://docs.prophesee.ai/stable/hw/products.html | [02_evk4_and_imx636.md](downloaded_pages/02_evk4_and_imx636.md) |
 
@@ -61,4 +62,3 @@ This index intentionally does not restrict future internet use. It is a quick lo
 | Applications and tools | https://docs.prophesee.ai/stable/applications.html | [11_studio_and_tools.md](downloaded_pages/11_studio_and_tools.md) |
 | Training videos page | https://docs.prophesee.ai/stable/training_videos.html | [12_training_links.md](downloaded_pages/12_training_links.md) |
 | Bias tuning video | https://www.youtube.com/watch?v=7c7n5DMuatY | [12_training_links.md](downloaded_pages/12_training_links.md) |
-

@@ -12,6 +12,7 @@ This is a working cache, not a rule limiting future internet use. When exact wor
 - [url_index.md](url_index.md): official URLs grouped by topic.
 - [evk4_notes.md](evk4_notes.md): project-focused notes for EVK4 VLC work.
 - [downloaded_pages/](downloaded_pages/): readable local markdown notes from relevant public documentation pages.
+- [manuals/](manuals/): local hardware manuals, including the EVK4 HD camera manual.
 
 ## Useful searches
 
@@ -29,6 +30,7 @@ rg -n "ROI|RONI|pixel selection|event rate|LED|VLC" docs/metavision
 
 - Event-camera concepts: [downloaded_pages/01_event_based_concepts.md](downloaded_pages/01_event_based_concepts.md)
 - EVK4 and IMX636 hardware: [downloaded_pages/02_evk4_and_imx636.md](downloaded_pages/02_evk4_and_imx636.md)
+- EVK4 HD camera manual: [manuals/EVK4_HD_Prophesee_Evaluation_Kit_Camera_Manual.pdf](manuals/EVK4_HD_Prophesee_Evaluation_Kit_Camera_Manual.pdf)
 - SDK setup and modules: [downloaded_pages/03_sdk_basics_installation_modules.md](downloaded_pages/03_sdk_basics_installation_modules.md)
 - Python API overview: [downloaded_pages/04_python_api_overview.md](downloaded_pages/04_python_api_overview.md)
 - Open camera and read events: [downloaded_pages/05_open_camera_read_events.md](downloaded_pages/05_open_camera_read_events.md)
@@ -39,4 +41,3 @@ rg -n "ROI|RONI|pixel selection|event rate|LED|VLC" docs/metavision
 - File formats and encodings: [downloaded_pages/10_file_formats_encoding.md](downloaded_pages/10_file_formats_encoding.md)
 - Metavision Studio and CLI tools: [downloaded_pages/11_studio_and_tools.md](downloaded_pages/11_studio_and_tools.md)
 - Training links: [downloaded_pages/12_training_links.md](downloaded_pages/12_training_links.md)
-
