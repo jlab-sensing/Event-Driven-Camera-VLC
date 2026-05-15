@@ -1,0 +1,3 @@
+truth_bits,requested_frequency_hz,actual_frequency_hz,symbols_per_bit,message_repeats,guard_bits,target_duration_s,duration_pad_symbols,total_symbols,duration_s,output_file
+01010101010,500.0,500.0,2000,225,10,5.0,10000,5000000,5.0,s31_slow_alt_check_500Hz_5s_symbols.txt
+01010101010,100.0,100.0,10000,43,10,5.0,70000,5000000,5.0,s31_slow_alt_check_100Hz_5s_symbols.txt
