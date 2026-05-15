@@ -1,4 +1,4 @@
-SYMBOL_FILE ?= s31_replication_1500Hz_30s_symbols.txt
+SYMBOL_FILE ?= s31_replication_1500Hz_5s_symbols.txt
 
 all: userspace
 
