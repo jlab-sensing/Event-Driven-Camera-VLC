@@ -61,4 +61,11 @@ This index intentionally does not restrict future internet use. It is a quick lo
 | Metavision Studio | https://docs.prophesee.ai/stable/metavision_studio/index.html | [11_studio_and_tools.md](downloaded_pages/11_studio_and_tools.md) |
 | Applications and tools | https://docs.prophesee.ai/stable/applications.html | [11_studio_and_tools.md](downloaded_pages/11_studio_and_tools.md) |
 | Training videos page | https://docs.prophesee.ai/stable/training_videos.html | [12_training_links.md](downloaded_pages/12_training_links.md) |
+| Introduction to Event-Based Vision Sensor video | https://www.youtube.com/watch?v=SPrdvhuAISk | [12_training_links.md](downloaded_pages/12_training_links.md) |
 | Bias tuning video | https://www.youtube.com/watch?v=7c7n5DMuatY | [12_training_links.md](downloaded_pages/12_training_links.md) |
+| EVK4 HD Unboxing and Installation video | https://www.youtube.com/watch?v=Mq8_AOGj8P0 | [12_training_links.md](downloaded_pages/12_training_links.md) |
+| Focusing an Event Camera video | https://www.youtube.com/watch?v=Z64Kn29jO7w | [12_training_links.md](downloaded_pages/12_training_links.md) |
+| Event Data Visualization and Representation video | https://www.youtube.com/watch?v=7TVM0WrHBHs | [12_training_links.md](downloaded_pages/12_training_links.md) |
+| Encoding Formats, Streaming and Decoding video | https://www.youtube.com/watch?v=BhjosTLWA1Y | [12_training_links.md](downloaded_pages/12_training_links.md) |
+| Trigger and Synchronization Interfaces video | https://www.youtube.com/watch?v=EVoATjOM7co | [12_training_links.md](downloaded_pages/12_training_links.md) |
+| MVTec Metavision Acquisition Interface video | https://www.youtube.com/watch?v=sQkqdbvDAbo | [12_training_links.md](downloaded_pages/12_training_links.md) |
