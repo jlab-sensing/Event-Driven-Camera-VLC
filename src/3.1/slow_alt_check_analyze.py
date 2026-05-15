@@ -4,27 +4,33 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from metavision_core.event_io import EventsIterator
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 SRC_DIR = os.path.abspath(os.path.join(THIS_DIR, ".."))
 REPO_ROOT = os.path.abspath(os.path.join(SRC_DIR, ".."))
+if THIS_DIR not in sys.path:
+    sys.path.insert(0, THIS_DIR)
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-REPLICATION_DIR = os.path.abspath(os.path.join(THIS_DIR))
-if REPLICATION_DIR not in sys.path:
-    sys.path.insert(0, REPLICATION_DIR)
-
+from aperture_sweep_analyze import (  # noqa: E402
+    background_rate,
+    expected_transition_count,
+    find_analysis_window_from_counts,
+    find_edge_peaks,
+    load_binned_roi_events,
+    robust_threshold,
+    select_signal,
+    window_counts,
+)
 from section3_1_replication_analyze import (  # noqa: E402
-    ManifestEntry,
     bits_to_string,
     compare_candidates,
     load_transmission_manifest,
@@ -37,34 +43,10 @@ from section3_1_replication_analyze import (  # noqa: E402
 )
 
 
-APERTURE_ORDER = {
-    "C": 0.0,
-    "f16": 16.0,
-    "f11": 11.0,
-    "f8": 8.0,
-    "f5p6": 5.6,
-    "f4": 4.0,
-    "f2p8": 2.8,
-    "f2": 2.0,
-}
-
-
 @dataclass
-class CaptureBins:
-    t_bins_s: np.ndarray
-    total_counts: np.ndarray
-    on_counts: np.ndarray
-    off_counts: np.ndarray
-    capture_duration_s: float
-    capture_events: int
-    roi_events: int
-    on_fraction: float
-
-
-@dataclass
-class ApertureResult:
-    aperture: str
-    aperture_f_number: float
+class SlowAltResult:
+    frequency_hz: float
+    trial: int
     raw_file: str
     bias_file: str
     capture_duration_s: float
@@ -97,222 +79,14 @@ class ApertureResult:
     edge_match_phase_s: float
 
 
-def parse_aperture(raw_file: str) -> Tuple[str, float]:
-    match = re.search(r"_aperture_([^_]+)_", raw_file)
-    if not match:
-        raise ValueError(f"Could not parse aperture from filename: {raw_file}")
-    aperture = match.group(1)
-    if aperture not in APERTURE_ORDER:
-        raise ValueError(f"Unknown aperture token {aperture!r} in {raw_file}")
-    return aperture, APERTURE_ORDER[aperture]
-
-
-def list_raw_files(input_dir: str) -> List[str]:
-    return sorted(
-        os.path.join(input_dir, name)
-        for name in os.listdir(input_dir)
-        if name.lower().endswith(".raw")
-    )
-
-
-def scan_capture(raw_path: str) -> Tuple[int, int, int]:
-    first_t_us: Optional[int] = None
-    last_t_us: Optional[int] = None
-    capture_events = 0
-
-    for evs in EventsIterator(input_path=raw_path):
-        if evs.size == 0:
-            continue
-        t = evs["t"].astype(np.int64)
-        capture_events += int(evs.size)
-        if first_t_us is None:
-            first_t_us = int(t[0])
-        last_t_us = int(t[-1])
-
-    if first_t_us is None or last_t_us is None:
-        return 0, 0, capture_events
-    return first_t_us, last_t_us, capture_events
-
-
-def load_binned_roi_events(
-    raw_path: str,
-    roi: Tuple[int, int, int, int],
-    bin_us: float,
-) -> CaptureBins:
-    if bin_us <= 0:
-        raise ValueError("--bin_us must be > 0")
-
-    capture_start_us, capture_end_us, capture_events = scan_capture(raw_path)
-    if capture_events == 0 or capture_end_us <= capture_start_us:
-        empty = np.array([], dtype=np.float64)
-        return CaptureBins(
-            t_bins_s=empty,
-            total_counts=empty,
-            on_counts=empty,
-            off_counts=empty,
-            capture_duration_s=0.0,
-            capture_events=capture_events,
-            roi_events=0,
-            on_fraction=float("nan"),
-        )
-
-    bin_width_us = max(1, int(round(bin_us)))
-    duration_us = capture_end_us - capture_start_us + 1
-    n_bins = max(1, int(np.ceil(duration_us / float(bin_width_us))))
-    total_counts = np.zeros(n_bins, dtype=np.int64)
-    on_counts = np.zeros(n_bins, dtype=np.int64)
-    off_counts = np.zeros(n_bins, dtype=np.int64)
-
-    x0, y0, x1, y1 = roi
-    roi_events = 0
-    on_events = 0
-
-    for evs in EventsIterator(input_path=raw_path):
-        if evs.size == 0:
-            continue
-
-        mask = (
-            (evs["x"] >= x0)
-            & (evs["x"] < x1)
-            & (evs["y"] >= y0)
-            & (evs["y"] < y1)
-        )
-        if not np.any(mask):
-            continue
-
-        t = evs["t"][mask].astype(np.int64)
-        idx = ((t - capture_start_us) // bin_width_us).astype(np.int64)
-        valid = (idx >= 0) & (idx < n_bins)
-        if not np.any(valid):
-            continue
-
-        idx = idx[valid]
-        roi_events += int(idx.size)
-        total_counts += np.bincount(idx, minlength=n_bins).astype(np.int64)
-
-        if "p" in evs.dtype.names:
-            p = evs["p"][mask][valid]
-            on_idx = idx[p > 0]
-            off_idx = idx[p <= 0]
-            on_events += int(on_idx.size)
-            if on_idx.size:
-                on_counts += np.bincount(on_idx, minlength=n_bins).astype(np.int64)
-            if off_idx.size:
-                off_counts += np.bincount(off_idx, minlength=n_bins).astype(np.int64)
-
-    t_bins_s = np.arange(n_bins, dtype=np.float64) * bin_width_us * 1e-6
-    capture_duration_s = duration_us * 1e-6
-    on_fraction = float(on_events / roi_events) if roi_events else float("nan")
-    return CaptureBins(
-        t_bins_s=t_bins_s,
-        total_counts=total_counts,
-        on_counts=on_counts,
-        off_counts=off_counts,
-        capture_duration_s=float(capture_duration_s),
-        capture_events=int(capture_events),
-        roi_events=int(roi_events),
-        on_fraction=on_fraction,
-    )
-
-
-def select_signal(bins: CaptureBins, signal: str) -> np.ndarray:
-    if signal == "total":
-        return bins.total_counts.astype(np.float64)
-    if signal == "on":
-        return bins.on_counts.astype(np.float64)
-    if signal == "off":
-        return bins.off_counts.astype(np.float64)
-    if signal == "diff":
-        return bins.on_counts.astype(np.float64) - bins.off_counts.astype(np.float64)
-    if signal == "absdiff":
-        return np.abs(bins.on_counts.astype(np.float64) - bins.off_counts.astype(np.float64))
-    raise ValueError(f"Unsupported signal: {signal}")
-
-
-def window_counts(
-    t_bins_s: np.ndarray,
-    counts: np.ndarray,
-    start_s: float,
-    end_s: float,
-) -> Tuple[np.ndarray, np.ndarray]:
-    mask = (t_bins_s >= start_s) & (t_bins_s < end_s)
-    if not np.any(mask):
-        return np.array([], dtype=np.float64), np.array([], dtype=np.float64)
-    return t_bins_s[mask] - start_s, counts[mask].astype(np.float64)
-
-
-def background_rate(
-    t_bins_s: np.ndarray,
-    counts: np.ndarray,
-    analysis_start_s: float,
-    bin_s: float,
-    fallback_s: float,
-) -> float:
-    pre_mask = t_bins_s < analysis_start_s
-    if np.any(pre_mask):
-        pre_counts = counts[pre_mask]
-        pre_duration_s = max(bin_s, float(np.count_nonzero(pre_mask)) * bin_s)
-        return float(np.sum(pre_counts) / pre_duration_s)
-
-    fallback_bins = max(1, int(round(fallback_s / bin_s)))
-    fallback_counts = counts[:fallback_bins]
-    fallback_duration_s = max(bin_s, float(fallback_counts.size) * bin_s)
-    return float(np.sum(fallback_counts) / fallback_duration_s)
-
-
-def robust_threshold(values: np.ndarray, k: float) -> float:
-    if values.size == 0:
-        return float("nan")
-    med = float(np.median(values))
-    mad = float(np.median(np.abs(values - med)))
-    return float(med + k * max(1e-9, 1.4826 * mad))
-
-
-def find_edge_peaks(
-    t_bins_s: np.ndarray,
-    counts: np.ndarray,
-    min_height: float,
-    min_distance_s: float,
-) -> np.ndarray:
-    if t_bins_s.size < 3:
-        return np.array([], dtype=np.float64)
-
-    candidates = []
-    for i in range(1, counts.size - 1):
-        if counts[i] > counts[i - 1] and counts[i] >= counts[i + 1] and counts[i] >= min_height:
-            candidates.append(i)
-
-    if not candidates:
-        return np.array([], dtype=np.float64)
-
-    peaks = [candidates[0]]
-    for idx in candidates[1:]:
-        if (t_bins_s[idx] - t_bins_s[peaks[-1]]) >= min_distance_s:
-            peaks.append(idx)
-    return t_bins_s[np.array(peaks, dtype=int)]
-
-
-def edge_residual_jitter_us(peak_times_s: np.ndarray) -> float:
-    if peak_times_s.size < 5:
-        return float("nan")
-    k = np.arange(peak_times_s.size, dtype=np.float64)
-    slope, intercept = np.polyfit(k, peak_times_s, 1)
-    residual = peak_times_s - (slope * k + intercept)
-    return float(np.std(residual) * 1e6)
-
-
-def expected_transition_count(
-    truth_message_bits: np.ndarray,
-    message_repeats: int,
-    guard_bits: int,
-) -> int:
-    bits = bits_to_string(truth_message_bits)
-    if not bits or message_repeats <= 0:
-        return 0
-
-    guard = "0" * max(0, int(guard_bits))
-    stream = guard + (bits * int(message_repeats)) + guard
-    return sum(1 for a, b in zip(stream, stream[1:]) if a != b)
+def parse_name(raw_file: str) -> Tuple[float, int]:
+    freq_match = re.search(r"_([0-9]+(?:p[0-9]+|\.[0-9]+)?)Hz_", raw_file)
+    trial_match = re.search(r"_t([0-9]+)\.raw$", raw_file)
+    if not freq_match:
+        raise ValueError(f"Could not parse frequency from filename: {raw_file}")
+    frequency_hz = float(freq_match.group(1).replace("p", "."))
+    trial = int(trial_match.group(1)) if trial_match else 0
+    return frequency_hz, trial
 
 
 def expected_transition_times(
@@ -325,12 +99,11 @@ def expected_transition_times(
     if not bits or message_repeats <= 0 or bit_rate_hz <= 0:
         return np.array([], dtype=np.float64)
 
-    guard = "0" * max(0, int(guard_bits))
-    stream = guard + (bits * int(message_repeats)) + guard
+    bit_stream = ("0" * max(0, int(guard_bits))) + (bits * int(message_repeats)) + ("0" * max(0, int(guard_bits)))
     bit_period_s = 1.0 / float(bit_rate_hz)
     transition_times = [
         i * bit_period_s
-        for i, (prev_bit, next_bit) in enumerate(zip(stream, stream[1:]), start=1)
+        for i, (prev_bit, next_bit) in enumerate(zip(bit_stream, bit_stream[1:]), start=1)
         if prev_bit != next_bit
     ]
     return np.array(transition_times, dtype=np.float64)
@@ -508,83 +281,60 @@ def search_peak_transition_decode(
     return best
 
 
-def find_analysis_window_from_counts(
-    t_bins_s: np.ndarray,
-    counts: np.ndarray,
-    manifest_entry: ManifestEntry,
-    message_len_bits: int,
-    search_bin_s: float,
-) -> Tuple[float, float]:
-    if t_bins_s.size == 0:
-        return 0.0, 0.0
-
-    actual_frequency_hz = float(manifest_entry.actual_frequency_hz)
-    payload_duration_s = float((manifest_entry.message_repeats * message_len_bits) / actual_frequency_hz)
-    guard_duration_s = float(manifest_entry.guard_bits / actual_frequency_hz)
-
-    if search_bin_s <= 0:
-        raise ValueError("--window_search_bin_us must be > 0")
-
-    capture_duration_s = float(t_bins_s[-1] + (t_bins_s[1] - t_bins_s[0] if t_bins_s.size > 1 else search_bin_s))
-    n_bins = max(1, int(np.ceil(capture_duration_s / search_bin_s)))
-    edges = np.arange(0.0, (n_bins + 1) * search_bin_s, search_bin_s, dtype=np.float64)
-    rebinned, _ = np.histogram(t_bins_s, bins=edges, weights=counts)
-
-    window_bins = max(1, int(np.ceil(payload_duration_s / search_bin_s)))
-    if rebinned.size <= window_bins:
-        payload_start_s = 0.0
-    else:
-        cumulative = np.concatenate(([0.0], np.cumsum(rebinned)))
-        rolling = cumulative[window_bins:] - cumulative[:-window_bins]
-        payload_start_s = float(edges[int(np.argmax(rolling))])
-    payload_end_s = float(min(capture_duration_s, payload_start_s + payload_duration_s))
-
-    start_s = max(0.0, payload_start_s - guard_duration_s)
-    end_s = min(capture_duration_s, payload_end_s + guard_duration_s)
-    return float(start_s), float(end_s)
+def list_raw_files(input_dir: str) -> List[str]:
+    return sorted(
+        os.path.join(input_dir, name)
+        for name in os.listdir(input_dir)
+        if name.lower().endswith(".raw")
+    )
 
 
 def analyze_one(
     raw_path: str,
-    manifest_entry: ManifestEntry,
+    manifest: Dict[float, object],
     truth_message_bits: np.ndarray,
     roi: Tuple[int, int, int, int],
     bin_us: float,
     signal: str,
-    phase_steps: int,
     decode_mode: str,
-    transition_rate_min_scale: float,
-    transition_rate_max_scale: float,
-    transition_rate_steps: int,
-    transition_edge_window_fraction: float,
-    transition_max_rate_drift_fraction: float,
+    phase_steps: int,
     edge_peak_k: float,
     edge_min_distance_ms: float,
     edge_min_distance_fraction: float,
     background_window_s: float,
     window_search_bin_us: float,
-) -> ApertureResult:
+    transition_rate_min_scale: float,
+    transition_rate_max_scale: float,
+    transition_rate_steps: int,
+    transition_edge_window_fraction: float,
+    transition_max_rate_drift_fraction: float,
+) -> SlowAltResult:
     raw_file = os.path.basename(raw_path)
-    aperture, aperture_f_number = parse_aperture(raw_file)
+    frequency_hz, trial = parse_name(raw_file)
+    manifest_entry = lookup_manifest_entry(manifest, frequency_hz)
+    if manifest_entry is None:
+        raise ValueError(f"No manifest entry found for {frequency_hz:g} Hz")
+
     bias_file = os.path.splitext(raw_file)[0] + ".bias"
     bias_path = os.path.join(os.path.dirname(raw_path), bias_file)
     bias_file_label = bias_file if os.path.exists(bias_path) else ""
 
     bins = load_binned_roi_events(raw_path=raw_path, roi=roi, bin_us=bin_us)
-    signal_counts = select_signal(bins, signal)
+    counts = select_signal(bins, signal)
     bin_s = float(bin_us) * 1e-6
 
     analysis_start_s, analysis_end_s = find_analysis_window_from_counts(
         t_bins_s=bins.t_bins_s,
-        counts=signal_counts,
+        counts=counts,
         manifest_entry=manifest_entry,
         message_len_bits=int(truth_message_bits.size),
         search_bin_s=window_search_bin_us * 1e-6,
     )
     analysis_duration_s = max(0.0, analysis_end_s - analysis_start_s)
+
     active_t, active_counts = window_counts(
         t_bins_s=bins.t_bins_s,
-        counts=signal_counts,
+        counts=counts,
         start_s=analysis_start_s,
         end_s=analysis_end_s,
     )
@@ -633,7 +383,7 @@ def analyze_one(
         guard_bits=int(manifest_entry.guard_bits),
         bit_rate_hz=float(manifest_entry.actual_frequency_hz),
     )
-    matched_edges, false_edges, edge_detection_rate, timing_jitter, edge_match_phase_s = match_expected_transitions(
+    matched_edges, false_edges, edge_detection_rate, timing_jitter_us, edge_match_phase_s = match_expected_transitions(
         expected_times_s=expected_times_s,
         peak_times_s=peak_times_s,
         duration_s=analysis_duration_s,
@@ -706,9 +456,9 @@ def analyze_one(
         phase_s = float(best.phase_s)
         threshold = float(best.threshold)
 
-    return ApertureResult(
-        aperture=aperture,
-        aperture_f_number=aperture_f_number,
+    return SlowAltResult(
+        frequency_hz=float(frequency_hz),
+        trial=int(trial),
         raw_file=raw_file,
         bias_file=bias_file_label,
         capture_duration_s=float(bins.capture_duration_s),
@@ -723,7 +473,7 @@ def analyze_one(
         expected_edges=int(expected_edges),
         detected_edges=detected_edges,
         edge_detection_rate=edge_detection_rate,
-        timing_jitter_us=float(timing_jitter),
+        timing_jitter_us=float(timing_jitter_us),
         decode_mode=decode_mode,
         decode_rate_hz=decode_rate_hz,
         decode_rate_error_fraction=decode_rate_error_fraction,
@@ -742,83 +492,220 @@ def analyze_one(
     )
 
 
-def save_results(rows: List[ApertureResult], out_path: str) -> None:
-    fieldnames = list(ApertureResult.__dataclass_fields__.keys())
-    with open(out_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+def save_results(rows: List[SlowAltResult], out_path: str) -> None:
+    fieldnames = list(SlowAltResult.__dataclass_fields__.keys())
+    with open(out_path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for row in rows:
             writer.writerow(row.__dict__)
 
 
-def save_plot(rows: List[ApertureResult], out_path: str) -> None:
-    labels = [row.aperture for row in rows]
+def save_by_frequency(rows: List[SlowAltResult], out_path: str) -> None:
+    fieldnames = [
+        "frequency_hz",
+        "n_trials",
+        "ber_mean",
+        "ber_std",
+        "mar_mean",
+        "edge_detection_rate_mean",
+        "timing_jitter_us_mean",
+        "matched_edges_mean",
+        "false_edges_mean",
+        "roi_event_rate_eps_mean",
+        "background_rate_eps_mean",
+    ]
+    grouped: Dict[float, List[SlowAltResult]] = {}
+    for row in rows:
+        grouped.setdefault(row.frequency_hz, []).append(row)
+
+    with open(out_path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for frequency_hz in sorted(grouped):
+            group = grouped[frequency_hz]
+            writer.writerow({
+                "frequency_hz": frequency_hz,
+                "n_trials": len(group),
+                "ber_mean": float(np.nanmean([row.ber for row in group])),
+                "ber_std": float(np.nanstd([row.ber for row in group])),
+                "mar_mean": float(np.nanmean([row.mar for row in group])),
+                "edge_detection_rate_mean": float(np.nanmean([row.edge_detection_rate for row in group])),
+                "timing_jitter_us_mean": float(np.nanmean([row.timing_jitter_us for row in group])),
+                "matched_edges_mean": float(np.nanmean([row.matched_edges for row in group])),
+                "false_edges_mean": float(np.nanmean([row.false_edges for row in group])),
+                "roi_event_rate_eps_mean": float(np.nanmean([row.roi_event_rate_eps for row in group])),
+                "background_rate_eps_mean": float(np.nanmean([row.background_rate_eps for row in group])),
+            })
+
+
+def save_plot(rows: List[SlowAltResult], out_path: str) -> None:
+    labels = [f"{row.frequency_hz:g}Hz t{row.trial}" for row in rows]
     x = np.arange(len(rows), dtype=np.float64)
     ber = np.array([row.ber for row in rows], dtype=np.float64)
     edge_rate = np.array([row.edge_detection_rate for row in rows], dtype=np.float64)
-    roi_rate = np.array([row.roi_event_rate_eps for row in rows], dtype=np.float64)
-    bg_rate = np.array([row.background_rate_eps for row in rows], dtype=np.float64)
+    jitter = np.array([row.timing_jitter_us for row in rows], dtype=np.float64)
 
-    fig, axes = plt.subplots(2, 2, figsize=(10, 7), constrained_layout=True)
-    axes[0, 0].plot(x, ber, marker="o")
-    axes[0, 0].set_ylabel("BER")
-    axes[0, 0].set_xticks(x, labels)
-    axes[0, 0].grid(True, alpha=0.3)
-
-    axes[0, 1].plot(x, edge_rate, marker="o")
-    axes[0, 1].set_ylabel("edge detection rate")
-    axes[0, 1].set_xticks(x, labels)
-    axes[0, 1].grid(True, alpha=0.3)
-
-    axes[1, 0].plot(x, roi_rate, marker="o")
-    axes[1, 0].set_ylabel("ROI events/s")
-    axes[1, 0].set_xticks(x, labels)
-    axes[1, 0].grid(True, alpha=0.3)
-
-    axes[1, 1].plot(x, bg_rate, marker="o")
-    axes[1, 1].set_ylabel("background events/s")
-    axes[1, 1].set_xticks(x, labels)
-    axes[1, 1].grid(True, alpha=0.3)
-
-    fig.suptitle("Section 3.1 aperture sweep at 1500 Hz")
+    fig, axes = plt.subplots(3, 1, figsize=(8, 8), constrained_layout=True)
+    axes[0].plot(x, ber, marker="o")
+    axes[0].set_ylabel("BER")
+    axes[0].grid(True, alpha=0.3)
+    axes[1].plot(x, edge_rate, marker="o")
+    axes[1].set_ylabel("edge detection")
+    axes[1].grid(True, alpha=0.3)
+    axes[2].plot(x, jitter, marker="o")
+    axes[2].set_ylabel("jitter (us)")
+    axes[2].set_xticks(x, labels, rotation=25, ha="right")
+    axes[2].grid(True, alpha=0.3)
+    fig.suptitle("Slow alternating transmitter check")
     fig.savefig(out_path, dpi=300)
     plt.close(fig)
 
 
+def values_at_times(t_bins_s: np.ndarray, counts: np.ndarray, times_s: np.ndarray) -> np.ndarray:
+    if t_bins_s.size == 0 or counts.size == 0 or times_s.size == 0:
+        return np.array([], dtype=np.float64)
+    idx = np.searchsorted(t_bins_s, times_s, side="left")
+    idx = np.clip(idx, 0, counts.size - 1)
+    return counts[idx].astype(np.float64)
+
+
+def plot_transition_diagnostic(
+    raw_path: str,
+    row: SlowAltResult,
+    manifest: Dict[float, object],
+    truth_message_bits: np.ndarray,
+    roi: Tuple[int, int, int, int],
+    bin_us: float,
+    signal: str,
+    edge_peak_k: float,
+    edge_min_distance_ms: float,
+    edge_min_distance_fraction: float,
+    out_dir: str,
+    zoom_s: float,
+) -> List[str]:
+    manifest_entry = lookup_manifest_entry(manifest, row.frequency_hz)
+    if manifest_entry is None:
+        return []
+
+    bins = load_binned_roi_events(raw_path=raw_path, roi=roi, bin_us=bin_us)
+    counts = select_signal(bins, signal)
+    active_t, active_counts = window_counts(
+        t_bins_s=bins.t_bins_s,
+        counts=counts,
+        start_s=row.analysis_start_s,
+        end_s=row.analysis_end_s,
+    )
+    if active_t.size == 0:
+        return []
+
+    edge_threshold = robust_threshold(active_counts, edge_peak_k)
+    actual_edge_min_distance_ms = effective_edge_min_distance_ms(
+        explicit_min_distance_ms=edge_min_distance_ms,
+        bit_rate_hz=float(manifest_entry.actual_frequency_hz),
+        bit_period_fraction=edge_min_distance_fraction,
+    )
+    peak_times_s = find_edge_peaks(
+        t_bins_s=active_t,
+        counts=active_counts,
+        min_height=edge_threshold,
+        min_distance_s=actual_edge_min_distance_ms * 1e-3,
+    )
+    peak_values = values_at_times(active_t, active_counts, peak_times_s)
+
+    expected_times_s = expected_transition_times(
+        truth_message_bits=truth_message_bits,
+        message_repeats=int(manifest_entry.message_repeats),
+        guard_bits=int(manifest_entry.guard_bits),
+        bit_rate_hz=float(manifest_entry.actual_frequency_hz),
+    )
+    expected_times_s = expected_times_s + row.edge_match_phase_s
+    expected_times_s = expected_times_s[(expected_times_s >= 0.0) & (expected_times_s <= row.analysis_duration_s)]
+
+    base = os.path.splitext(row.raw_file)[0]
+    os.makedirs(out_dir, exist_ok=True)
+    paths: List[str] = []
+
+    def draw(path: str, x_limit: Optional[Tuple[float, float]], title_suffix: str) -> None:
+        fig, ax = plt.subplots(figsize=(12, 4.5), constrained_layout=True)
+        ax.plot(active_t, active_counts, color="0.25", linewidth=0.5, label=f"ROI {signal} counts")
+        for i, t_s in enumerate(expected_times_s):
+            if x_limit is not None and (t_s < x_limit[0] or t_s > x_limit[1]):
+                continue
+            ax.axvline(
+                t_s,
+                color="#2ca02c",
+                linewidth=0.7,
+                alpha=0.45,
+                label="expected transition" if i == 0 else None,
+            )
+        if peak_times_s.size:
+            mask = np.ones(peak_times_s.size, dtype=bool)
+            if x_limit is not None:
+                mask = (peak_times_s >= x_limit[0]) & (peak_times_s <= x_limit[1])
+            ax.scatter(
+                peak_times_s[mask],
+                peak_values[mask],
+                s=13,
+                color="#d62728",
+                label="detected peak",
+                zorder=3,
+            )
+        ax.axhline(edge_threshold, color="#1f77b4", linewidth=0.8, linestyle="--", label="peak threshold")
+        ax.set_title(
+            f"{row.raw_file} {title_suffix}: expected vs detected transitions\n"
+            f"matched={row.matched_edges}/{row.expected_edges}, false={row.false_edges}, "
+            f"BER={row.ber:.3f}"
+        )
+        ax.set_xlabel("seconds from selected transmit window start")
+        ax.set_ylabel(f"{signal} counts per {bin_us:g} us bin")
+        if x_limit is not None:
+            ax.set_xlim(*x_limit)
+        ax.grid(True, alpha=0.25)
+        ax.legend(loc="upper right")
+        fig.savefig(path, dpi=300)
+        plt.close(fig)
+
+    overview_path = os.path.join(out_dir, f"{base}_transition_diagnostic_overview.png")
+    draw(overview_path, None, "overview")
+    paths.append(overview_path)
+
+    zoom_end_s = min(max(float(zoom_s), 0.05), row.analysis_duration_s)
+    zoom_path = os.path.join(out_dir, f"{base}_transition_diagnostic_zoom.png")
+    draw(zoom_path, (0.0, zoom_end_s), f"first {zoom_end_s:g}s")
+    paths.append(zoom_path)
+
+    return paths
+
+
 def main() -> None:
     default_input_dir = os.path.abspath(
-        os.path.join(REPO_ROOT, "..", "captures", "3.1", "aperture_sweep_1500Hz_20260515")
+        os.path.join(REPO_ROOT, "..", "captures", "3.1", "transmitter_slow_alt_check_20260515")
     )
     default_manifest = os.path.join(
         REPO_ROOT,
         "pru1_pwm_CSK_1000Hz",
         "userspace",
-        "s31_replication_1500Hz_10s_manifest.csv",
+        "s31_slow_alt_check_manifest.csv",
     )
     default_bits = os.path.join(
         REPO_ROOT,
         "pru1_pwm_CSK_1000Hz",
         "userspace",
-        "replication_bits_11b.txt",
+        "slow_alt_bits_11b.txt",
     )
 
-    parser = argparse.ArgumentParser(description="Analyze one Section 3.1 aperture sweep at 1500 Hz.")
+    parser = argparse.ArgumentParser(description="Analyze slow alternating transmitter sanity captures.")
     parser.add_argument("--input_dir", default=default_input_dir)
     parser.add_argument("--manifest_csv", default=default_manifest)
     parser.add_argument("--bits_file", default=default_bits)
-    parser.add_argument("--frequency_hz", type=float, default=1500.0)
     parser.add_argument("--roi", nargs=4, type=int, default=[544, 320, 672, 448])
-    parser.add_argument("--bin_us", type=float, default=15.0)
+    parser.add_argument("--bin_us", type=float, default=25.0)
     parser.add_argument("--signal", choices=["total", "on", "off", "diff", "absdiff"], default="total")
     parser.add_argument("--decode_mode", choices=["activity", "transition", "peak_transition"], default="peak_transition")
-    parser.add_argument("--phase_steps", type=int, default=50)
-    parser.add_argument("--transition_rate_min_scale", type=float, default=0.9)
-    parser.add_argument("--transition_rate_max_scale", type=float, default=1.1)
-    parser.add_argument("--transition_rate_steps", type=int, default=41)
-    parser.add_argument("--transition_edge_window_fraction", type=float, default=0.4)
-    parser.add_argument("--transition_max_rate_drift_fraction", type=float, default=0.10)
+    parser.add_argument("--phase_steps", type=int, default=80)
     parser.add_argument("--edge_peak_k", type=float, default=6.0)
-    parser.add_argument("--edge_min_distance_ms", type=float, default=0.45)
+    parser.add_argument("--edge_min_distance_ms", type=float, default=0.5)
     parser.add_argument(
         "--edge_min_distance_fraction",
         type=float,
@@ -827,7 +714,15 @@ def main() -> None:
     )
     parser.add_argument("--background_window_s", type=float, default=0.5)
     parser.add_argument("--window_search_bin_us", type=float, default=250.0)
-    parser.add_argument("--out_prefix", default="s31_aperture_sweep_1500Hz")
+    parser.add_argument("--transition_rate_min_scale", type=float, default=0.9)
+    parser.add_argument("--transition_rate_max_scale", type=float, default=1.1)
+    parser.add_argument("--transition_rate_steps", type=int, default=41)
+    parser.add_argument("--transition_edge_window_fraction", type=float, default=0.4)
+    parser.add_argument("--transition_max_rate_drift_fraction", type=float, default=0.10)
+    parser.add_argument("--diagnostic_frequency_hz", type=float, default=100.0)
+    parser.add_argument("--diagnostic_zoom_s", type=float, default=0.5)
+    parser.add_argument("--no_diagnostic_plots", action="store_true")
+    parser.add_argument("--out_prefix", default="s31_slow_alt_check")
     parser.add_argument("--no_plot", action="store_true")
     args = parser.parse_args()
 
@@ -836,66 +731,91 @@ def main() -> None:
 
     truth_message_bits = load_truth_bits(args.bits_file, None)
     manifest = load_transmission_manifest(args.manifest_csv)
-    manifest_entry = lookup_manifest_entry(manifest, args.frequency_hz)
-    if manifest_entry is None:
-        raise ValueError(f"No manifest entry for frequency {args.frequency_hz}")
-
     raw_files = list_raw_files(args.input_dir)
     if not raw_files:
         raise RuntimeError(f"No .raw files found in {args.input_dir}")
 
-    rows: List[ApertureResult] = []
     roi = tuple(args.roi)
     print(f"Using ROI x=[{roi[0]},{roi[2]}) y=[{roi[1]},{roi[3]})")
     print(
         f"Using signal={args.signal}, decode_mode={args.decode_mode}, "
         f"bin_us={args.bin_us}, truth={bits_to_string(truth_message_bits)}"
     )
+
+    raw_paths_by_name: Dict[str, str] = {}
+    rows = []
     for raw_path in raw_files:
         row = analyze_one(
             raw_path=raw_path,
-            manifest_entry=manifest_entry,
+            manifest=manifest,
             truth_message_bits=truth_message_bits,
             roi=roi,
             bin_us=float(args.bin_us),
             signal=args.signal,
-            phase_steps=int(args.phase_steps),
             decode_mode=args.decode_mode,
-            transition_rate_min_scale=float(args.transition_rate_min_scale),
-            transition_rate_max_scale=float(args.transition_rate_max_scale),
-            transition_rate_steps=int(args.transition_rate_steps),
-            transition_edge_window_fraction=float(args.transition_edge_window_fraction),
-            transition_max_rate_drift_fraction=float(args.transition_max_rate_drift_fraction),
+            phase_steps=int(args.phase_steps),
             edge_peak_k=float(args.edge_peak_k),
             edge_min_distance_ms=float(args.edge_min_distance_ms),
             edge_min_distance_fraction=float(args.edge_min_distance_fraction),
             background_window_s=float(args.background_window_s),
             window_search_bin_us=float(args.window_search_bin_us),
+            transition_rate_min_scale=float(args.transition_rate_min_scale),
+            transition_rate_max_scale=float(args.transition_rate_max_scale),
+            transition_rate_steps=int(args.transition_rate_steps),
+            transition_edge_window_fraction=float(args.transition_edge_window_fraction),
+            transition_max_rate_drift_fraction=float(args.transition_max_rate_drift_fraction),
         )
         rows.append(row)
+        raw_paths_by_name[row.raw_file] = raw_path
+    rows.sort(key=lambda row: (row.frequency_hz, row.trial))
+
+    for row in rows:
         print(
-            f"Done: {row.raw_file} aperture={row.aperture} "
-            f"roi_rate={row.roi_event_rate_eps:.3g}/s bg={row.background_rate_eps:.3g}/s "
+            f"Done: {row.raw_file} BER={row.ber:.4f} MAR={row.mar:.3f} "
             f"edge_rate={row.edge_detection_rate:.3f} matched={row.matched_edges}/{row.expected_edges} "
-            f"false={row.false_edges} jitter={row.timing_jitter_us:.3g}us "
-            f"BER={row.ber:.4f} MAR={row.mar:.3f}"
+            f"false={row.false_edges} jitter={row.timing_jitter_us:.3g}us"
         )
 
-    order = {aperture: idx for idx, aperture in enumerate(["C", "f16", "f11", "f8", "f5p6", "f4", "f2p8", "f2"])}
-    rows.sort(key=lambda row: order.get(row.aperture, 999))
-
-    data_dir = os.path.join(REPO_ROOT, "data", "3.1", "aperture_sweep")
-    plot_dir = os.path.join(REPO_ROOT, "plots", "3.1", "aperture_sweep")
+    data_dir = os.path.join(REPO_ROOT, "data", "3.1", "slow_alt_check")
+    plot_dir = os.path.join(REPO_ROOT, "plots", "3.1", "slow_alt_check")
     os.makedirs(data_dir, exist_ok=True)
-    out_path = os.path.join(data_dir, f"{args.out_prefix}_summary.csv")
-    save_results(rows, out_path)
-    print("Saved summary CSV:", out_path)
+    summary_path = os.path.join(data_dir, f"{args.out_prefix}_summary.csv")
+    by_frequency_path = os.path.join(data_dir, f"{args.out_prefix}_by_frequency_summary.csv")
+    save_results(rows, summary_path)
+    save_by_frequency(rows, by_frequency_path)
+    print("Saved summary CSV:", summary_path)
+    print("Saved by-frequency CSV:", by_frequency_path)
 
     if not args.no_plot:
         os.makedirs(plot_dir, exist_ok=True)
         plot_path = os.path.join(plot_dir, f"{args.out_prefix}_summary.png")
         save_plot(rows, plot_path)
         print("Saved plot:", plot_path)
+
+        if not args.no_diagnostic_plots:
+            diagnostic_dir = os.path.join(plot_dir, "diagnostics")
+            diagnostic_rows = [
+                row for row in rows if abs(row.frequency_hz - float(args.diagnostic_frequency_hz)) < 1e-6
+            ]
+            for row in diagnostic_rows:
+                raw_path = raw_paths_by_name.get(row.raw_file)
+                if not raw_path:
+                    continue
+                for path in plot_transition_diagnostic(
+                    raw_path=raw_path,
+                    row=row,
+                    manifest=manifest,
+                    truth_message_bits=truth_message_bits,
+                    roi=roi,
+                    bin_us=float(args.bin_us),
+                    signal=args.signal,
+                    edge_peak_k=float(args.edge_peak_k),
+                    edge_min_distance_ms=float(args.edge_min_distance_ms),
+                    edge_min_distance_fraction=float(args.edge_min_distance_fraction),
+                    out_dir=diagnostic_dir,
+                    zoom_s=float(args.diagnostic_zoom_s),
+                ):
+                    print("Saved diagnostic plot:", path)
 
 
 if __name__ == "__main__":
