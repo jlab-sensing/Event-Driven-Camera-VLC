@@ -1,0 +1,6 @@
+frequency_hz,n_trials,decode_modes,decode_rules,reliability_labels,mar_mean,mar_std,ber_mean,ber_std,total_messages,correct_messages,pooled_mar,total_bits,bit_errors,pooled_ber
+100.0,1,synced_activity,synced_activity,standard_analysis,0.0,0.0,0.18181818181818182,0.0,22,0,0.0,242,44,0.18181818181818182
+200.0,1,synced_activity,synced_activity,standard_analysis,0.0,0.0,0.18181818181818182,0.0,45,0,0.0,495,90,0.18181818181818182
+300.0,1,synced_activity,synced_activity,standard_analysis,0.0,0.0,0.18181818181818182,0.0,68,0,0.0,748,136,0.18181818181818182
+400.0,1,synced_activity,synced_activity,standard_analysis,0.0,0.0,0.40711462450592883,0.0,92,0,0.0,1012,412,0.40711462450592883
+500.0,1,synced_activity,synced_activity,standard_analysis,0.0,0.0,0.4758893280632411,0.0,115,0,0.0,1265,602,0.4758893280632411
