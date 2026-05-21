@@ -43,6 +43,14 @@ Starter rows for one stable EVK4 condition already live at:
 
 Those rows are marked `status=planned`, so the analyzer will ignore them until you fill in the missing measured values and change the rows to `ready` or leave `status` blank.
 
+Pixel 7a comparison rows live at:
+
+- `data/3.2/s32_energy_pixel7a_ook_300hz_starter.csv`
+
+Use these for the frame-based smartphone comparison against the current EVK4 300 Hz energy point. Pixel 7a video BER/decoding should be handled by a separate video pipeline rather than the EVK4 RAW event decoder. Keep Pixel device and capture notes in:
+
+- `docs/pixel7a/`
+
 ## Example
 
 After filling in at least one real trial row, run from the repository root:
