@@ -1,0 +1,4 @@
+sensor_type,lighting_source,visibility_condition,lux,n_trials,total_bits_transmitted,total_bits_scored,total_bit_errors,total_correct_bits,pooled_ber,pooled_score_fraction,mean_ber,std_ber,mean_score_fraction,std_score_fraction,mean_actual_frequency_hz,mean_frequency_error_fraction,mean_event_rate_per_s,std_event_rate_per_s,mean_max_event_gap_ms,mean_long_event_gap_fraction
+EVK4,artificial_room,LOS,500,3,2244,2244,35,2209,0.0155971,1,0.0155971,0.014295,1,0,303.135,0.0104508,7.26187e+06,44214,,
+EVK4,artificial_room,low_lux_shielded_receiver,81,3,2244,2244,62,2182,0.0276292,1,0.0276292,0.0348962,1,0,303.145,0.0104839,7.39242e+06,2050.45,,
+EVK4,artificial_room,partial_shadow,500,4,2992,2992,188,2804,0.0628342,1,0.0628342,0.0760898,1,0,303.155,0.0105161,5.04948e+06,3.87128e+06,,

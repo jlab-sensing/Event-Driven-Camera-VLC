@@ -1,0 +1,4 @@
+raw_file,frequency_hz
+partial_shadow t1.raw,300
+partial_shadow t2.raw,300
+partial_shadow t3.raw,300
