@@ -52,6 +52,28 @@ For each trial, write down:
 
 For a first thesis-pass comparison, it is acceptable to enter Pixel 7a sensing power as the phone's active recording power and compute power as zero if decoding is not run on-device. Note that choice in the manifest notes.
 
+## Current Pixel 7a Measurements
+
+Raw trial notes live beside the videos in:
+
+```text
+captures/3.2/pixel 7a vids/pixel7a_trial_notes.md
+```
+
+Initial Pixel 7a Section 3.2 videos were saved as 1920x1080 H.264 at about 30 fps, even though the phone camera UI was set to 60 fps. Use the file metadata value in the thesis notes and manifest comments.
+
+First measured power readings:
+
+- T1: idle 7.244 W, active recording 7.251 W, active-minus-idle 0.007 W.
+- T2: idle 7.251 W, active recording 7.252 W, active-minus-idle 0.001 W.
+
+Using the 10 s transmitter window and 748 transmitted bits:
+
+- T1 active-minus-idle energy per transmitted bit: 9.36e-5 J/bit.
+- T2 active-minus-idle energy per transmitted bit: 1.34e-5 J/bit.
+
+The active-minus-idle change is close to the USB meter resolution, so report it as a small near-resolution incremental receiver-power result. Do not treat these rows as BER-scored until a Pixel-specific video decoder or visibility check is completed.
+
 ## BER / Video Decode Plan
 
 Make new Pixel-specific decoding code only after a representative Pixel video exists.
