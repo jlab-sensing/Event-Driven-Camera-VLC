@@ -20,3 +20,10 @@ __pycache__/
 
 # download pages in the database for evk4
 docs/metavision/downloaded_pages/
+
+# Local notes and generated/private thesis materials
+/lab_journal/
+/AGENTS.md
+/Experiment Replication 3.1.pdf
+/reports/
+/docs/
