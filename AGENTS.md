@@ -29,3 +29,15 @@ Current validated thesis condition for moving into Section 3.2:
 - The 50 cm sweep showed clean 200 Hz and 300 Hz decoding; 400-500 Hz degraded.
 
 More detail: `docs/ber_workflow.md`.
+
+## Lab Journal Workflow
+
+When the user says they are done for the day, packing up, or asks for a daily lab-journal entry:
+
+1. Use a Markdown file in `lab_journal/` named with the month and day, for example `5-29.md`.
+2. Before creating a new file, check whether that date's file already exists. If it does, write in that existing file instead of making another journal file for the same day.
+3. If the existing journal file already contains user-written notes, preserve them. Do not overwrite, erase, or silently rewrite the user's notes.
+4. If user-written notes need to be organized, place them under a section named `## My Own Written Notes`, keeping the original meaning and details intact.
+5. Add or update assistant-written sections around the user's notes to summarize what was done that day using the actual files, captures, measurements, commands, and decisions from the session.
+6. Include important notes, findings, unresolved questions, and the next concrete step.
+7. Keep the journal factual and thesis-useful. Do not overstate completion; distinguish measured results from planned or pending work.
