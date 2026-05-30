@@ -1,0 +1,2 @@
+csk_scheme,truth_symbols,requested_symbol_rate_hz,actual_symbol_rate_hz,bits_per_symbol,symbols_per_csk_symbol,message_repeats,guard_symbols,target_duration_s,duration_pad_pru_symbols,csk_symbols_transmitted,total_pru_symbols,duration_s,output_file
+ratio_4state,1234123412341234,300.0,300.03000300030004,2.0,3333,185,20,10.0,1000,2960,10000000,10.0,s34_csk_ratio4_300Hz_10s_symbols.txt
