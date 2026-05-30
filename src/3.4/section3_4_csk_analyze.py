@@ -321,7 +321,7 @@ def load_trials(manifest_path: str) -> List[CskTrial]:
             if not any((value or "").strip() for value in row.values()):
                 continue
             status = row.get("status", "").strip().lower()
-            if status in {"planned", "todo", "skip", "skipped"}:
+            if status in {"planned", "todo", "skip", "skipped", "pending_decode", "recorded_pending_decode"}:
                 continue
 
             trial_id = require_text(row, "trial_id", row_number)
