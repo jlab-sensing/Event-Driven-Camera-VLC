@@ -26,7 +26,7 @@
 
 #define RED11   1 // 9212
 #define GREEN11 47
-#define BLUE11  1000 // 787
+#define BLUE11  750 // 75% duty-cycle sweep setting
 
 
 // Power matrix proposed
