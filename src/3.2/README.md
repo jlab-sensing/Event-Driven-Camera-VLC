@@ -14,6 +14,11 @@ This folder is the starting point for the Section 3.2 energy study.
   - Interpolates 1 hr, 2 hr, and 3 hr battery loss for Open Camera idle, active recording, moving-screen recording, and screen-on no-app baseline.
   - Outputs a summary CSV and battery-drain plots into `data/3.2/` and `plots/3.2/`.
   - This is a battery-percent runtime analysis, not a watts or `J/bit` analysis.
+- `section3_2_pixel7a_video_feasibility.py`
+  - Reads Pixel 7a `.mp4` trial videos using local `ffmpeg`/`ffprobe`.
+  - Detects a blue LED ROI and checks whether the video has frame-level or rolling-shutter-style row signal for BER decoding.
+  - Outputs a summary CSV, per-frame CSV, ROI crops, and diagnostic plots into `data/3.2/` and `plots/3.2/`.
+  - A 30 fps video cannot directly sample a 300 Hz OOK stream frame-by-frame, so the useful path is a Pixel-specific rolling-shutter/row-profile decoder.
 
 ## Trial manifest intent
 
@@ -70,4 +75,10 @@ For the Pixel 7a battery-percent run logged in `lab_journal/6-22.md`, run:
 
 ```powershell
 python .\src\3.2\section3_2_pixel7a_battery_drain.py
+```
+
+For the Pixel 7a video feasibility check on the existing `T1.mp4` and `T2.mp4` captures, run from the workspace root:
+
+```powershell
+.\metavision39_env\Scripts\python.exe .\Event-Driven-Camera-VLC\src\3.2\section3_2_pixel7a_video_feasibility.py --videos ".\captures\3.2\pixel 7a vids\T1.mp4" ".\captures\3.2\pixel 7a vids\T2.mp4"
 ```
