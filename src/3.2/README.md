@@ -9,6 +9,11 @@ This folder is the starting point for the Section 3.2 energy study.
   - Computes sensing, compute, and total energy.
   - Reports gross and idle-subtracted active `J/bit`.
   - Outputs a per-trial CSV, a pooled summary CSV, and basic plots.
+- `section3_2_pixel7a_battery_drain.py`
+  - Reads Pixel 7a battery-percent checkpoints from `data/3.2/s32_pixel7a_battery_drain_2026_06_22.csv`.
+  - Interpolates 1 hr, 2 hr, and 3 hr battery loss for Open Camera idle, active recording, moving-screen recording, and screen-on no-app baseline.
+  - Outputs a summary CSV and battery-drain plots into `data/3.2/` and `plots/3.2/`.
+  - This is a battery-percent runtime analysis, not a watts or `J/bit` analysis.
 
 ## Trial manifest intent
 
@@ -60,3 +65,9 @@ python .\src\3.2\section3_2_energy_analyze.py --manifest .\data\3.2\section3_2_e
 ```
 
 The analyzer will then emit the summary CSVs and figures into `data/3.2/` and `plots/3.2/`.
+
+For the Pixel 7a battery-percent run logged in `lab_journal/6-22.md`, run:
+
+```powershell
+python .\src\3.2\section3_2_pixel7a_battery_drain.py
+```

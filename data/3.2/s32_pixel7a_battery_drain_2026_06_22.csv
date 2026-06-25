@@ -1,0 +1,45 @@
+scenario,elapsed_min,battery_percent,open_camera,recording,stimulus,notes
+camera_idle_open_camera_black_not_recording,0,100,yes,no,black_screen_facedown,Assumed full-battery start; first recorded checkpoint was 90 percent at 38 min.
+camera_idle_open_camera_black_not_recording,38,90,yes,no,black_screen_facedown,Recorded in lab_journal/6-22.md.
+camera_idle_open_camera_black_not_recording,66,80,yes,no,black_screen_facedown,Recorded in lab_journal/6-22.md.
+camera_idle_open_camera_black_not_recording,93,70,yes,no,black_screen_facedown,Recorded in lab_journal/6-22.md.
+camera_idle_open_camera_black_not_recording,122,60,yes,no,black_screen_facedown,Recorded in lab_journal/6-22.md.
+camera_idle_open_camera_black_not_recording,152,50,yes,no,black_screen_facedown,Recorded in lab_journal/6-22.md.
+camera_idle_open_camera_black_not_recording,177,40,yes,no,black_screen_facedown,Recorded in lab_journal/6-22.md.
+camera_idle_open_camera_black_not_recording,205,30,yes,no,black_screen_facedown,Recorded in lab_journal/6-22.md.
+camera_idle_open_camera_black_not_recording,236,20,yes,no,black_screen_facedown,Recorded in lab_journal/6-22.md.
+camera_idle_open_camera_black_not_recording,262,10,yes,no,black_screen_facedown,Recorded in lab_journal/6-22.md.
+camera_idle_open_camera_black_not_recording,291,0,yes,no,black_screen_facedown,Recorded in lab_journal/6-22.md.
+active_recording_black,0,100,yes,yes,black_screen_facedown,Assumed full-battery start; first recorded checkpoint was 90 percent at 40 min.
+active_recording_black,40,90,yes,yes,black_screen_facedown,Recorded in lab_journal/6-22.md.
+active_recording_black,72,80,yes,yes,black_screen_facedown,Recorded in lab_journal/6-22.md.
+active_recording_black,101,70,yes,yes,black_screen_facedown,Recorded in lab_journal/6-22.md.
+active_recording_black,137,60,yes,yes,black_screen_facedown,Recorded in lab_journal/6-22.md.
+active_recording_black,161,50,yes,yes,black_screen_facedown,Recorded in lab_journal/6-22.md.
+active_recording_black,194,40,yes,yes,black_screen_facedown,Recorded in lab_journal/6-22.md.
+active_recording_black,225,30,yes,yes,black_screen_facedown,Recorded in lab_journal/6-22.md.
+active_recording_black,256,20,yes,yes,black_screen_facedown,Recorded in lab_journal/6-22.md.
+active_recording_black,286,10,yes,yes,black_screen_facedown,Recorded in lab_journal/6-22.md.
+active_recording_black,317,0,yes,yes,black_screen_facedown,Recorded in lab_journal/6-22.md.
+active_recording_moving_phone_screen,0,100,yes,yes,moving_phone_screen_gif,Assumed full-battery start; first recorded checkpoint was 90 percent at 39 min.
+active_recording_moving_phone_screen,39,90,yes,yes,moving_phone_screen_gif,Recorded in lab_journal/6-22.md.
+active_recording_moving_phone_screen,68,80,yes,yes,moving_phone_screen_gif,Recorded in lab_journal/6-22.md.
+active_recording_moving_phone_screen,96,70,yes,yes,moving_phone_screen_gif,Recorded in lab_journal/6-22.md.
+active_recording_moving_phone_screen,125,60,yes,yes,moving_phone_screen_gif,Recorded in lab_journal/6-22.md.
+active_recording_moving_phone_screen,153,50,yes,yes,moving_phone_screen_gif,Recorded in lab_journal/6-22.md.
+active_recording_moving_phone_screen,182,40,yes,yes,moving_phone_screen_gif,Recorded in lab_journal/6-22.md.
+active_recording_moving_phone_screen,210,30,yes,yes,moving_phone_screen_gif,Recorded in lab_journal/6-22.md.
+active_recording_moving_phone_screen,239,20,yes,yes,moving_phone_screen_gif,Recorded in lab_journal/6-22.md.
+active_recording_moving_phone_screen,267,10,yes,yes,moving_phone_screen_gif,Recorded in lab_journal/6-22.md.
+active_recording_moving_phone_screen,296,0,yes,yes,moving_phone_screen_gif,Recorded in lab_journal/6-22.md.
+idle_screen_on_no_app,0,100,no,no,no_app_screen_on,Assumed full-battery start; first recorded checkpoint was 90 percent at 118 min.
+idle_screen_on_no_app,118,90,no,no,no_app_screen_on,Recorded in lab_journal/6-22.md.
+idle_screen_on_no_app,251,80,no,no,no_app_screen_on,Recorded in lab_journal/6-22.md.
+idle_screen_on_no_app,384,70,no,no,no_app_screen_on,Recorded in lab_journal/6-22.md.
+idle_screen_on_no_app,517,60,no,no,no_app_screen_on,Recorded in lab_journal/6-22.md.
+idle_screen_on_no_app,650,50,no,no,no_app_screen_on,Recorded in lab_journal/6-22.md.
+idle_screen_on_no_app,783,40,no,no,no_app_screen_on,Recorded in lab_journal/6-22.md.
+idle_screen_on_no_app,916,30,no,no,no_app_screen_on,Recorded in lab_journal/6-22.md.
+idle_screen_on_no_app,1049,20,no,no,no_app_screen_on,Recorded in lab_journal/6-22.md.
+idle_screen_on_no_app,1182,10,no,no,no_app_screen_on,Recorded in lab_journal/6-22.md.
+idle_screen_on_no_app,1315,0,no,no,no_app_screen_on,Recorded in lab_journal/6-22.md.

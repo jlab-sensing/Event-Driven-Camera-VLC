@@ -1,0 +1,5 @@
+scenario,scenario_label,runtime_min,runtime_hr,avg_loss_percent_per_hr,n_checkpoints,battery_percent_at_1hr,loss_1hr,loss_diff_vs_camera_idle_1hr,battery_percent_at_2hr,loss_2hr,loss_diff_vs_camera_idle_2hr,battery_percent_at_3hr,loss_3hr,loss_diff_vs_camera_idle_3hr,source
+camera_idle_open_camera_black_not_recording,Open Camera idle,291,4.85,20.6186,11,82.1429,17.8571,0,60.6897,39.3103,0,38.9286,61.0714,0,lab_journal/6-22.md
+active_recording_black,Recording black frame,317,5.28333,18.9274,11,83.75,16.25,-1.60714,64.7222,35.2778,-4.03257,44.2424,55.7576,-5.31385,lab_journal/6-22.md
+active_recording_moving_phone_screen,Recording moving screen,296,4.93333,20.2703,11,82.7586,17.2414,-0.615764,61.7241,38.2759,-1.03448,40.6897,59.3103,-1.76108,lab_journal/6-22.md
+idle_screen_on_no_app,"Screen on, no app",1315,21.9167,4.56274,11,94.9153,5.08475,-12.7724,89.8496,10.1504,-29.16,85.3383,14.6617,-46.4098,lab_journal/6-22.md
