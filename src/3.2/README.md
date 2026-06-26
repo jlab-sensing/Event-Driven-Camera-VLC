@@ -19,6 +19,11 @@ This folder is the starting point for the Section 3.2 energy study.
   - Detects a blue LED ROI and checks whether the video has frame-level or rolling-shutter-style row signal for BER decoding.
   - Outputs a summary CSV, per-frame CSV, ROI crops, and diagnostic plots into `data/3.2/` and `plots/3.2/`.
   - A 30 fps video cannot directly sample a 300 Hz OOK stream frame-by-frame, so the useful path is a Pixel-specific rolling-shutter/row-profile decoder.
+- `section3_2_pixel7a_rolling_shutter_decode.py`
+  - Attempts a Pixel-specific rolling-shutter decode from the detected blue LED ROI.
+  - Uses the 32-bit alternating preamble for timing/readout synchronization and scores the repeated 11-bit payload separately.
+  - Outputs decode summary, per-bit, per-message CSVs, and diagnostic plots.
+  - Current `T1.mp4` and `T2.mp4` results are marked `not_recovered_preamble_lock_failed`, so their near-random payload BER values should not be reported as valid Pixel BER performance.
 
 ## Trial manifest intent
 
@@ -81,4 +86,10 @@ For the Pixel 7a video feasibility check on the existing `T1.mp4` and `T2.mp4` c
 
 ```powershell
 .\metavision39_env\Scripts\python.exe .\Event-Driven-Camera-VLC\src\3.2\section3_2_pixel7a_video_feasibility.py --videos ".\captures\3.2\pixel 7a vids\T1.mp4" ".\captures\3.2\pixel 7a vids\T2.mp4"
+```
+
+To attempt the rolling-shutter BER decode on those same videos:
+
+```powershell
+.\metavision39_env\Scripts\python.exe .\Event-Driven-Camera-VLC\src\3.2\section3_2_pixel7a_rolling_shutter_decode.py --videos ".\captures\3.2\pixel 7a vids\T1.mp4" ".\captures\3.2\pixel 7a vids\T2.mp4"
 ```
