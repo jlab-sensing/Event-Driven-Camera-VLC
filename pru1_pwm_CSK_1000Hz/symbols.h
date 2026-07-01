@@ -24,9 +24,9 @@
 #define GREEN10 1
 #define BLUE10  1
 
-#define RED11   1 // 9212
-#define GREEN11 47
-#define BLUE11  1000 // 787
+#define RED11   1
+#define GREEN11 24
+#define BLUE11  500
 
 
 // Power matrix proposed
