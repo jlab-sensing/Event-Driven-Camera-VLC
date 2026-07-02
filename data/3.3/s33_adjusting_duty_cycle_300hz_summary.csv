@@ -1,0 +1,5 @@
+scenario,frequency_hz,n_trials,total_bits_transmitted,total_bits_scored,total_bit_errors,total_correct_bits,pooled_ber,pooled_score_fraction,mean_ber,std_ber,mean_score_fraction,std_score_fraction,mean_actual_frequency_hz,mean_frequency_error_fraction,mean_event_rate_per_s,std_event_rate_per_s,mean_max_event_gap_ms,mean_long_event_gap_fraction
+tx_blue_duty_100_percent,300,3,2244,2244,0,2244,0,1,0,0,1,0,303.125,0.0104155,7.06069e+06,1459.96,,
+tx_blue_duty_25_percent,300,3,2244,2244,548,1696,0.244207,1,0.244207,0.0100342,1,0,299.689,0.00103802,5.60841e+06,1378.47,,
+tx_blue_duty_50_percent,300,3,2244,2244,666,1578,0.296791,1,0.296791,0.0289524,1,0,299.688,0.0010389,6.44695e+06,292825,,
+tx_blue_duty_75_percent,300,3,2244,2244,668,1576,0.297683,1,0.297683,0.00540301,1,0,299.68,0.00106566,6.76556e+06,123102,,
