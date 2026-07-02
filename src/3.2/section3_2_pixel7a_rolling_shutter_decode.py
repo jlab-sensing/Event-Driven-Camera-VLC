@@ -33,11 +33,11 @@ from section3_2_pixel7a_video_feasibility import (
 )
 
 
-TARGET_SYMBOL_RATE_HZ = 300.03000300030004
+DEFAULT_SYMBOL_RATE_HZ = 300.03000300030004
 PAYLOAD_BITS = "10110010110"
 PREAMBLE_BITS = "10" * 16
 GUARD_BITS = 20
-MESSAGE_REPEATS = 68
+DEFAULT_MESSAGE_REPEATS = 68
 ROI_SIZE = 240
 
 
@@ -71,9 +71,9 @@ class TimingCandidate:
     value_mode: str
 
 
-def expected_bits() -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Tuple[int, int, int]]]:
+def expected_bits(message_repeats: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Tuple[int, int, int]]]:
     frame_bits = PREAMBLE_BITS + PAYLOAD_BITS
-    full = "0" * GUARD_BITS + frame_bits * MESSAGE_REPEATS + "0" * GUARD_BITS
+    full = "0" * GUARD_BITS + frame_bits * message_repeats + "0" * GUARD_BITS
     bits = np.array([1 if ch == "1" else 0 for ch in full], dtype=np.uint8)
     kind = np.zeros(len(bits), dtype=np.uint8)
     message_index = np.full(len(bits), -1, dtype=np.int16)
@@ -81,7 +81,7 @@ def expected_bits() -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Tuple[int,
     frame_len = len(frame_bits)
     preamble_len = len(PREAMBLE_BITS)
     payload_len = len(PAYLOAD_BITS)
-    for msg in range(MESSAGE_REPEATS):
+    for msg in range(message_repeats):
         frame_start = GUARD_BITS + msg * frame_len
         kind[frame_start : frame_start + preamble_len] = 1
         kind[frame_start + preamble_len : frame_start + frame_len] = 2
@@ -222,9 +222,11 @@ def score_candidate(
     readout_s: float,
     start_s: float,
     value_mode: str,
+    symbol_rate_hz: float,
+    message_repeats: int,
 ) -> Optional[TimingCandidate]:
     times = base_time_and_row[:, 0] + base_time_and_row[:, 1] * readout_s
-    bit_indices = np.floor((times - start_s) * TARGET_SYMBOL_RATE_HZ).astype(np.int32)
+    bit_indices = np.floor((times - start_s) * symbol_rate_hz).astype(np.int32)
     in_range = (bit_indices >= 0) & (bit_indices < len(bits))
     valid = np.zeros_like(in_range, dtype=bool)
     valid[in_range] = kind[bit_indices[in_range]] == 1
@@ -250,7 +252,7 @@ def score_candidate(
         polarity = 1
     separation = abs(med1 - med0) / max(float(np.std(preamble_values)), 1e-6)
     unique_preamble_bits = len(np.unique(bit_indices[valid]))
-    coverage_bonus = min(unique_preamble_bits / float(MESSAGE_REPEATS * len(PREAMBLE_BITS)), 1.0)
+    coverage_bonus = min(unique_preamble_bits / float(message_repeats * len(PREAMBLE_BITS)), 1.0)
     score = accuracy + 0.04 * coverage_bonus + 0.01 * min(separation, 5.0)
     return TimingCandidate(
         score=score,
@@ -271,15 +273,27 @@ def find_best_timing(
     start_grid: Sequence[float],
     frame_margin: int,
     value_mode: str,
+    symbol_rate_hz: float,
+    message_repeats: int,
 ) -> Tuple[TimingCandidate, np.ndarray, np.ndarray]:
-    bits, kind, _, _ = expected_bits()
+    bits, kind, _, _ = expected_bits(message_repeats)
     base_time_and_row, values = build_sample_vectors(
         samples, frame_margin=frame_margin, row_order=row_order, value_mode=value_mode
     )
     best: Optional[TimingCandidate] = None
     for readout_s in readout_grid:
         for start_s in start_grid:
-            candidate = score_candidate(base_time_and_row, values, bits, kind, readout_s, start_s, value_mode)
+            candidate = score_candidate(
+                base_time_and_row,
+                values,
+                bits,
+                kind,
+                readout_s,
+                start_s,
+                value_mode,
+                symbol_rate_hz,
+                message_repeats,
+            )
             if candidate is None:
                 continue
             if best is None or candidate.score > best.score:
@@ -294,20 +308,33 @@ def refine_timing(
     row_order: str,
     initial: TimingCandidate,
     frame_margin: int,
+    symbol_rate_hz: float,
+    message_repeats: int,
 ) -> Tuple[TimingCandidate, np.ndarray, np.ndarray]:
     readout_grid = np.linspace(max(0.001, initial.readout_s - 0.0025), initial.readout_s + 0.0025, 51)
     start_grid = np.linspace(initial.start_s - 0.010, initial.start_s + 0.010, 81)
-    return find_best_timing(samples, row_order, readout_grid, start_grid, frame_margin, initial.value_mode)
+    return find_best_timing(
+        samples,
+        row_order,
+        readout_grid,
+        start_grid,
+        frame_margin,
+        initial.value_mode,
+        symbol_rate_hz,
+        message_repeats,
+    )
 
 
 def decode_with_timing(
     base_time_and_row: np.ndarray,
     values: np.ndarray,
     timing: TimingCandidate,
+    symbol_rate_hz: float,
+    message_repeats: int,
 ) -> Tuple[List[Dict[str, object]], List[Dict[str, object]], Dict[str, object]]:
-    bits, kind, message_index, payload_positions = expected_bits()
+    bits, kind, message_index, payload_positions = expected_bits(message_repeats)
     times = base_time_and_row[:, 0] + base_time_and_row[:, 1] * timing.readout_s
-    bit_indices = np.floor((times - timing.start_s) * TARGET_SYMBOL_RATE_HZ).astype(np.int32)
+    bit_indices = np.floor((times - timing.start_s) * symbol_rate_hz).astype(np.int32)
     valid = (bit_indices >= 0) & (bit_indices < len(bits))
 
     bit_rows: List[Dict[str, object]] = []
@@ -347,7 +374,7 @@ def decode_with_timing(
     payload_scored = 0
     fully_scored_messages = 0
     correct_messages = 0
-    for msg in range(MESSAGE_REPEATS):
+    for msg in range(message_repeats):
         decoded_chars: List[str] = []
         expected_chars: List[str] = []
         message_scored = 0
@@ -384,11 +411,11 @@ def decode_with_timing(
         )
 
     summary = {
-        "payload_bits_total": MESSAGE_REPEATS * len(PAYLOAD_BITS),
+        "payload_bits_total": message_repeats * len(PAYLOAD_BITS),
         "payload_bits_scored": payload_scored,
         "payload_bit_errors": payload_errors,
         "payload_ber": payload_errors / payload_scored if payload_scored else "",
-        "messages_total": MESSAGE_REPEATS,
+        "messages_total": message_repeats,
         "messages_fully_scored": fully_scored_messages,
         "messages_correct": correct_messages,
         "message_accuracy": correct_messages / fully_scored_messages if fully_scored_messages else "",
@@ -478,6 +505,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--roi_size", type=int, default=ROI_SIZE)
     parser.add_argument("--max_detection_frames", type=int, default=120)
     parser.add_argument("--frame_margin", type=int, default=45)
+    parser.add_argument("--symbol_rate_hz", type=float, default=DEFAULT_SYMBOL_RATE_HZ)
+    parser.add_argument("--message_repeats", type=int, default=DEFAULT_MESSAGE_REPEATS)
+    parser.add_argument("--start_search_start_s", type=float, default=None)
+    parser.add_argument("--start_search_end_s", type=float, default=None)
+    parser.add_argument("--readout_search_start_s", type=float, default=0.006)
+    parser.add_argument("--readout_search_end_s", type=float, default=0.033)
     parser.add_argument("--out_prefix", default="s32_pixel7a_rolling_shutter_decode")
     return parser
 
@@ -501,9 +534,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             roi_size=args.roi_size,
             max_detection_frames=args.max_detection_frames,
         )
-        coarse_readouts = np.linspace(0.006, 0.033, 56)
+        if args.readout_search_end_s <= args.readout_search_start_s:
+            raise ValueError("--readout_search_end_s must be greater than --readout_search_start_s.")
+        coarse_readouts = np.linspace(args.readout_search_start_s, args.readout_search_end_s, 56)
         active_start_s = samples.active_start_frame / float(samples.info.avg_fps)
-        coarse_starts = np.linspace(active_start_s - 0.25, active_start_s + 0.08, 100)
+        if args.start_search_start_s is not None or args.start_search_end_s is not None:
+            if args.start_search_start_s is None or args.start_search_end_s is None:
+                raise ValueError("Provide both --start_search_start_s and --start_search_end_s.")
+            if args.start_search_end_s <= args.start_search_start_s:
+                raise ValueError("--start_search_end_s must be greater than --start_search_start_s.")
+            start_search_start_s = args.start_search_start_s
+            start_search_end_s = args.start_search_end_s
+        else:
+            start_search_start_s = active_start_s - 0.25
+            start_search_end_s = active_start_s + 0.08
+        coarse_starts = np.linspace(start_search_start_s, start_search_end_s, 100)
 
         search_results = []
         for value_mode in ("normalized", "highpass"):
@@ -515,17 +560,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     start_grid=coarse_starts,
                     frame_margin=args.frame_margin,
                     value_mode=value_mode,
+                    symbol_rate_hz=args.symbol_rate_hz,
+                    message_repeats=args.message_repeats,
                 )
                 refined, base_time_and_row, values = refine_timing(
                     samples,
                     row_order=row_order,
                     initial=initial,
                     frame_margin=args.frame_margin,
+                    symbol_rate_hz=args.symbol_rate_hz,
+                    message_repeats=args.message_repeats,
                 )
                 search_results.append((refined, row_order, base_time_and_row, values))
 
         timing, row_order, base_time_and_row, values = max(search_results, key=lambda item: item[0].score)
-        bit_rows, message_rows, decode_summary = decode_with_timing(base_time_and_row, values, timing)
+        bit_rows, message_rows, decode_summary = decode_with_timing(
+            base_time_and_row,
+            values,
+            timing,
+            symbol_rate_hz=args.symbol_rate_hz,
+            message_repeats=args.message_repeats,
+        )
         video_name = os.path.basename(video)
 
         for row in bit_rows:
@@ -543,6 +598,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "height": samples.info.height,
             "avg_fps": samples.info.avg_fps,
             "duration_s": samples.info.duration_s,
+            "symbol_rate_hz": args.symbol_rate_hz,
+            "message_repeats": args.message_repeats,
             "roi_x0": samples.roi_x0,
             "roi_y0": samples.roi_y0,
             "roi_x1": samples.roi_x1,
@@ -552,6 +609,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             else len(samples.selected_rows),
             "active_start_s": samples.active_start_frame / float(samples.info.avg_fps),
             "active_end_s": samples.active_end_frame / float(samples.info.avg_fps),
+            "start_search_start_s": start_search_start_s,
+            "start_search_end_s": start_search_end_s,
+            "readout_search_start_s": args.readout_search_start_s,
+            "readout_search_end_s": args.readout_search_end_s,
             "value_mode": timing.value_mode,
             "row_order": row_order,
             "estimated_full_frame_readout_s": timing.readout_s,
