@@ -322,7 +322,7 @@ void main(void) {
                 c = curr_symbols[i];
 
                 switch (c) {
-                case '0': // treat legacy '0' as OFF for compatibility
+               
                 case '0':
                     PWMSS1.EPWM_CMPA = REDOFF;
                     PWMSS1.EPWM_CMPB = GREENOFF;
