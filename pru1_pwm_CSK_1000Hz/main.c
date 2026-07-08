@@ -72,7 +72,8 @@
 #define CYCLES_PER_SECOND     200000000 /* PRU has 200 MHz clock */
 #define NANOSECONDS_PER_CYCLE 5
 // Calibrated down from 200 cycles to offset loop/shared-memory overhead.
-#define SYMBOL_DELAY_CYCLES   130
+// only change this for symbol duration 
+#define SYMBOL_DELAY_CYCLES   2000000
 
 /* ## RPMSG DEFINES ## */
 
@@ -322,36 +323,18 @@ void main(void) {
 
                 switch (c) {
                 case '0': // treat legacy '0' as OFF for compatibility
-                case 'o':
+                case '0':
                     PWMSS1.EPWM_CMPA = REDOFF;
                     PWMSS1.EPWM_CMPB = GREENOFF;
                     PWMSS2.EPWM_CMPB = BLUEOFF;
                     break;
-                case 'w':
+                case '1':
                     PWMSS1.EPWM_CMPA = REDON;
                     PWMSS1.EPWM_CMPB = GREENON;
                     PWMSS2.EPWM_CMPB = BLUEON;
                     break;
-                case '1': //00
-                    PWMSS1.EPWM_CMPA = RED00;
-                    PWMSS1.EPWM_CMPB = GREEN00;
-                    PWMSS2.EPWM_CMPB = BLUE00;
-                    break;
-                case '2': //01
-                    PWMSS1.EPWM_CMPA = RED01;
-                    PWMSS1.EPWM_CMPB = GREEN01;
-                    PWMSS2.EPWM_CMPB = BLUE01;
-                    break;
-                case '3': //10
-                    PWMSS1.EPWM_CMPA = RED10;
-                    PWMSS1.EPWM_CMPB = GREEN10;
-                    PWMSS2.EPWM_CMPB = BLUE10;
-                    break;
-                case '4': //11
-                    PWMSS1.EPWM_CMPA = RED11;
-                    PWMSS1.EPWM_CMPB = GREEN11;
-                    PWMSS2.EPWM_CMPB = BLUE11;
-                    break;
+
+            
                 default:
                     break;
             }
