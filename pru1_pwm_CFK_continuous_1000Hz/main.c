@@ -273,13 +273,13 @@ while(1){
 	                    PWMSS1.EPWM_CMPA = REDOFF;
 	                    PWMSS1.EPWM_CMPB = GREENOFF;
 	                    PWMSS2.EPWM_CMPB = BLUEOFF;
-			    __delay_cycles(200000); 
+			    __delay_cycles(100000); 
      	                    break;
                         case 10: 
                             PWMSS1.EPWM_CMPA = REDON;
                             PWMSS1.EPWM_CMPB = GREENON;
                             PWMSS2.EPWM_CMPB = BLUEON;
-                            __delay_cycles(200000); 
+                            __delay_cycles(100000); 
                             break;
 	                //case 1: //000
 	                    //PWMSS1.EPWM_CMPA = RED000;
