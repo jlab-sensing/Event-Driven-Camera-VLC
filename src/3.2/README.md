@@ -24,6 +24,14 @@ This folder is the starting point for the Section 3.2 energy study.
   - Uses the 32-bit alternating preamble for timing/readout synchronization and scores the repeated 11-bit payload separately.
   - Outputs decode summary, per-bit, per-message CSVs, and diagnostic plots.
   - Current `T1.mp4` and `T2.mp4` results are marked `not_recovered_preamble_lock_failed`, so their near-random payload BER values should not be reported as valid Pixel BER performance.
+- `section3_2_pixel7a_packet_match.py`
+  - Matches fixed-settings Pixel 7a videos against the repeated OOK packet currently programmed in `pru1_pwm_CFK_continuous_1000Hz/main.c`.
+  - Parses `symbols_to_send[]` by default, mapping symbol `10` to bit `1` and symbol `0` to bit `0`.
+  - Outputs a summary CSV, per-sampled-frame CSV, and diagnostic plot for checking packet-pattern lock before treating a clip as BER evidence.
+- `section3_2_evk4_packet_match.py`
+  - Matches EVK4 `.raw` event captures against the same repeated OOK packet currently programmed in `pru1_pwm_CFK_continuous_1000Hz/main.c`.
+  - Uses signed event transitions in an automatically detected LED ROI and searches the packet phase at the default `2000` symbols/s rate.
+  - Outputs a summary CSV, per-packet CSV, and diagnostic plot for checking whether the event camera can recover the new fixed packet.
 
 ## Trial manifest intent
 
@@ -92,4 +100,16 @@ To attempt the rolling-shutter BER decode on those same videos:
 
 ```powershell
 .\metavision39_env\Scripts\python.exe .\Event-Driven-Camera-VLC\src\3.2\section3_2_pixel7a_rolling_shutter_decode.py --videos ".\captures\3.2\pixel 7a vids\T1.mp4" ".\captures\3.2\pixel 7a vids\T2.mp4"
+```
+
+For the newer fixed-ISO Pixel packet test, run the packet matcher from the workspace root:
+
+```powershell
+.\metavision39_env\Scripts\python.exe .\Event-Driven-Camera-VLC\src\3.2\section3_2_pixel7a_packet_match.py --videos ".\captures\3.2\pixel 7a vids\7-9test5.mp4"
+```
+
+For an EVK4 RAW capture of that same packet, run:
+
+```powershell
+.\metavision39_env\Scripts\python.exe .\Event-Driven-Camera-VLC\src\3.2\section3_2_evk4_packet_match.py --raws ".\captures\3.2\evk4_7-9packet_2000sym_t1.raw"
 ```
