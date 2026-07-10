@@ -267,54 +267,54 @@ while(1){
                             PWMSS2.EPWM_CMPB = BLUEON;
                             __delay_cycles(300000); 
                             break;
-	                case 1: //000
-	                    PWMSS1.EPWM_CMPA = RED000;
-	                    PWMSS1.EPWM_CMPB = GREEN000;
-	                    PWMSS2.EPWM_CMPB = BLUE000;
-	                    __delay_cycles(300000); 
-			    break;
-	                case 2: //001
-	                    PWMSS1.EPWM_CMPA = RED001;
-	                    PWMSS1.EPWM_CMPB = GREEN001;
-	                    PWMSS2.EPWM_CMPB = BLUE001;
-	                    __delay_cycles(300000); 
-			    break;
-	                case 3: //010
-	                    PWMSS1.EPWM_CMPA = RED010;
-	                    PWMSS1.EPWM_CMPB = GREEN010;
-	                    PWMSS2.EPWM_CMPB = BLUE010;
-	                    __delay_cycles(300000); 
-			    break;
-	                case 4: //011
-	                    PWMSS1.EPWM_CMPA = RED011;
-	                    PWMSS1.EPWM_CMPB = GREEN011;
-	                    PWMSS2.EPWM_CMPB = BLUE011;
-	                    __delay_cycles(300000); 
-			    break;
-	                 case 5: //100
-	                    PWMSS1.EPWM_CMPA = RED100;
-	                    PWMSS1.EPWM_CMPB = GREEN100;
-	                    PWMSS2.EPWM_CMPB = BLUE100;
-	                    __delay_cycles(300000); 
-			    break;
-	                case 6: //101
-	                    PWMSS1.EPWM_CMPA = RED101;
-	                    PWMSS1.EPWM_CMPB = GREEN101;
-	                    PWMSS2.EPWM_CMPB = BLUE101;
-	                    __delay_cycles(300000); 
-			    break;
-	                case 7: //110
-	                    PWMSS1.EPWM_CMPA = RED110;
-	                    PWMSS1.EPWM_CMPB = GREEN110;
-	                    PWMSS2.EPWM_CMPB = BLUE110;
-	                    __delay_cycles(300000); 
-			    break;
-	                case 8: //111
-	                    PWMSS1.EPWM_CMPA = RED111;
-	                    PWMSS1.EPWM_CMPB = GREEN111;
-	                    PWMSS2.EPWM_CMPB = BLUE111;
-	                    __delay_cycles(300000); 
-			    break;
+	                //case 1: //000
+	                    //PWMSS1.EPWM_CMPA = RED000;
+	                    //PWMSS1.EPWM_CMPB = GREEN000;
+	                    //PWMSS2.EPWM_CMPB = BLUE000;
+	                    //__delay_cycles(300000); 
+			    //break;
+	                //case 2: //001
+	                    //PWMSS1.EPWM_CMPA = RED001;
+	                    //PWMSS1.EPWM_CMPB = GREEN001;
+	                    //PWMSS2.EPWM_CMPB = BLUE001;
+	                    //__delay_cycles(300000); 
+			    //break;
+	                //case 3: //010
+	                    //PWMSS1.EPWM_CMPA = RED010;
+	                    //PWMSS1.EPWM_CMPB = GREEN010;
+	                    //PWMSS2.EPWM_CMPB = BLUE010;
+	                    //__delay_cycles(300000); 
+			    //break;
+	                //case 4: //011
+	                    //PWMSS1.EPWM_CMPA = RED011;
+	                    //PWMSS1.EPWM_CMPB = GREEN011;
+	                    //PWMSS2.EPWM_CMPB = BLUE011;
+	                    //__delay_cycles(300000); 
+			    //break;
+	                 //case 5: //100
+	                    //PWMSS1.EPWM_CMPA = RED100;
+	                    //PWMSS1.EPWM_CMPB = GREEN100;
+	                    //PWMSS2.EPWM_CMPB = BLUE100;
+	                    //__delay_cycles(300000); 
+			    //break;
+	                //case 6: //101
+	                    //PWMSS1.EPWM_CMPA = RED101;
+	                    //PWMSS1.EPWM_CMPB = GREEN101;
+	                    //PWMSS2.EPWM_CMPB = BLUE101;
+	                    //__delay_cycles(300000); 
+			    //break;
+	                //case 7: //110
+	                    //PWMSS1.EPWM_CMPA = RED110;
+	                    //PWMSS1.EPWM_CMPB = GREEN110;
+	                    //PWMSS2.EPWM_CMPB = BLUE110;
+	                    //__delay_cycles(300000); 
+			    //break;
+	                //case 8: //111
+	                    //PWMSS1.EPWM_CMPA = RED111;
+	                    //PWMSS1.EPWM_CMPB = GREEN111;
+	                    //PWMSS2.EPWM_CMPB = BLUE111;
+	                    //__delay_cycles(300000); 
+			    //break;
 	                default:
 	                    break;
 	            }
