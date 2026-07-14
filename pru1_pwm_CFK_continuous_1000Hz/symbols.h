@@ -7,9 +7,9 @@
 #define GREENOFF 1
 #define BLUEOFF 1
 
-#define REDON 750
-#define GREENON 750
-#define BLUEON 750
+#define REDON 500
+#define GREENON 500
+#define BLUEON 500
 
 #define RED000   1000
 #define GREEN000 615 // 8679
