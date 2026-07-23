@@ -1,0 +1,4 @@
+trial_id,raw_file,roi_x0,roi_y0,roi_x1,roi_y1,aligned_first_state_boundary_us,roi_events,symbols_scored,correct_symbols,holdout_symbol_accuracy,interpretation
+t1,s34_csk_ratio4_300hz_los_t1.raw,500,300,596,396,3542350,30764824,2960,739,0.24966216,cross-capture state/transition feasibility; not validated CSK color decoding
+t2,s34_csk_ratio4_300hz_los_t2.raw,500,300,596,396,3470025,30794636,2960,763,0.25777027,cross-capture state/transition feasibility; not validated CSK color decoding
+t3,s34_csk_ratio4_300hz_los_t3.raw,500,300,596,396,3562000,30802141,2960,768,0.25945946,cross-capture state/transition feasibility; not validated CSK color decoding

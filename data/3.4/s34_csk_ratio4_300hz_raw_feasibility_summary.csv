@@ -1,0 +1,2 @@
+capture_count,symbol_rate_hz,distance_cm,ambient_lux,link_condition,logical_states,symbols_scored,correct_symbols,pooled_holdout_accuracy,trial_accuracy_sample_std,four_class_chance_accuracy,ser_or_ber_status,conclusion
+3,300.030003,50,440,direct LOS,4,8880,2270,0.25563063,0.00523739,0.25000000,not valid to report,"At this setup, cross-capture event features did not separate the four RGB-ratio states beyond chance; exploratory RAW feasibility only."
