@@ -1,0 +1,2 @@
+frequency_hz,n_trials,decode_modes,decode_rules,reliability_labels,mar_mean,mar_std,ber_mean,ber_std,total_messages,correct_messages,pooled_mar,total_bits,bit_errors,pooled_ber
+300.0,6,synced_transition,synced_transition,standard_analysis,0.14226807913674155,0.13145520451575662,0.3650215575543234,0.06688339562091868,210,32,0.1523809523809524,2310,818,0.3541125541125541
