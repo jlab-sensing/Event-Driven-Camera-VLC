@@ -1,0 +1,5 @@
+receiver,source_measurement,source_active_minus_idle_power_w,shared_symbol_rate_hz,estimated_incremental_j_per_transmitted_symbol,energy_basis,reliability_evidence,measurement_class
+EVK4,Mean of s32_energy_evk4_ook_synced_300hz_50cm trials T1-T3,0.027,1000,0.000027,active-minus-idle receiver sensing power divided by 1000 symbols/s,200000-cycle CFK weak packet matches,derived from prior power measurements
+Pixel 7a,T1 active-recording minus idle reading,0.007,1000,0.000007,active-recording-minus-idle receiver power divided by 1000 symbols/s,200000-cycle CFK packet-match candidate,derived from prior power measurement
+Pixel 7a,T2 active-recording minus idle reading,0.001,1000,0.000001,active-recording-minus-idle receiver power divided by 1000 symbols/s,200000-cycle CFK packet-match candidate,derived from prior power measurement
+Pixel 7a,Mean of T1 and T2 active-recording minus idle readings,0.004,1000,0.000004,mean active-recording-minus-idle receiver power divided by 1000 symbols/s,200000-cycle CFK packet-match candidates,derived from prior power measurements
