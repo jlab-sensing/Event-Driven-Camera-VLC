@@ -242,8 +242,7 @@ def write_outputs(trials, roi):
     ax.legend(frameon=False)
     for bar, value in zip(bars, accuracies):
         ax.text(bar.get_x() + bar.get_width() / 2, value + 2, f"{value:.1f}%", ha="center")
-    fig.text(0.5, 0.01, "Repeated 1-2-3-4 truth order confounds color state with transition position; exploratory only.", ha="center", fontsize=8)
-    fig.subplots_adjust(bottom=0.22)
+    fig.tight_layout()
     fig.savefig(plot, dpi=220)
     plt.close(fig)
     return per_symbol, per_trial, summary, confusion, plot

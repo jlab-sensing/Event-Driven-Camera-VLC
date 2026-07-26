@@ -952,6 +952,57 @@ def plot_metric(
     plt.close(fig)
 
 
+def plot_single_energy_estimate(
+    summary_rows: Sequence[Dict[str, object]],
+    out_path: str,
+) -> None:
+    """Plot one energy estimate as a horizontal uncertainty interval.
+
+    A frequency-versus-energy chart is misleading when a manifest contains
+    only one validated operating point.  This view instead presents the same
+    mean and combined uncertainty directly in mJ/bit.
+    """
+    if len(summary_rows) != 1:
+        return
+
+    row = summary_rows[0]
+    estimate_mj = float(row["mean_active_j_per_tx_bit"]) * 1e3
+    uncertainty_mj = float(row["plot_active_j_per_tx_bit_yerr"]) * 1e3
+    if not (math.isfinite(estimate_mj) and math.isfinite(uncertainty_mj)):
+        return
+
+    frequency_hz = format_value(row["frequency_hz"])
+    fig, ax = plt.subplots(figsize=(8.0, 3.5))
+    ax.errorbar(
+        estimate_mj,
+        0,
+        xerr=uncertainty_mj,
+        fmt="o",
+        color="#1f77b4",
+        markersize=7,
+        linewidth=2,
+        capsize=5,
+    )
+    ax.set_yticks([0])
+    ax.set_yticklabels([f"EVK4 receiver\n{frequency_hz} Hz OOK"])
+    ax.set_xlabel("Active energy per transmitted bit (mJ/bit)")
+    ax.set_title("Section 3.2 Active Energy per Transmitted Bit")
+    ax.grid(axis="x", alpha=0.25)
+    padding = max(uncertainty_mj * 1.6, estimate_mj * 0.08)
+    ax.set_xlim(max(0.0, estimate_mj - padding), estimate_mj + padding)
+    ax.annotate(
+        f"{estimate_mj:.3f} ± {uncertainty_mj:.3f} mJ/bit",
+        xy=(estimate_mj, 0),
+        xytext=(0, 18),
+        textcoords="offset points",
+        ha="center",
+        va="bottom",
+    )
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=300)
+    plt.close(fig)
+
+
 def main() -> None:
     repo_root = repo_root_from_this_file(__file__)
     default_manifest = os.path.join(repo_root, "data", "3.2", "section3_2_energy_manifest_template.csv")
@@ -1028,6 +1079,7 @@ def main() -> None:
         return
 
     energy_plot = os.path.join(plot_dir, f"{args.out_prefix}_active_j_per_tx_bit_vs_{args.x_field}.png")
+    energy_estimate_plot = os.path.join(plot_dir, f"{args.out_prefix}_active_energy_estimate_interval.png")
     ber_plot = os.path.join(plot_dir, f"{args.out_prefix}_ber_vs_{args.x_field}.png")
 
     plot_metric(
@@ -1040,6 +1092,7 @@ def main() -> None:
         title="Section 3.2 Active Energy per Transmitted Bit",
         ylabel="Active energy per transmitted bit (J/bit)",
     )
+    plot_single_energy_estimate(summary_rows=summary_rows, out_path=energy_estimate_plot)
     plot_metric(
         summary_rows=summary_rows,
         x_field=args.x_field,
@@ -1052,6 +1105,8 @@ def main() -> None:
     )
 
     print(f"Saved plot: {energy_plot}")
+    if len(summary_rows) == 1:
+        print(f"Saved plot: {energy_estimate_plot}")
     print(f"Saved plot: {ber_plot}")
 
 
