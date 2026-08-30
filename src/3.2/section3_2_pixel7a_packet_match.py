@@ -422,6 +422,38 @@ def save_diagnostic_plot(
     plt.close(fig)
 
 
+def save_thesis_overlay_plot(path: str, frame_matches: Sequence[FrameMatch]) -> None:
+    """Save a compact, publication-oriented packet-profile overlay."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    best = max(frame_matches, key=lambda item: item.result.corr)
+    x = np.arange(len(best.profile))
+
+    fig, ax = plt.subplots(figsize=(6.5, 2.6), constrained_layout=True)
+    ax.plot(x, best.profile, linewidth=1.1, color="#1f77b4", label="Measured Pixel profile")
+    ax.plot(
+        x,
+        best.expected_profile,
+        linewidth=1.1,
+        color="#ff7f0e",
+        alpha=0.9,
+        label="Expected repeated packet",
+    )
+    ax.set_xlabel("Rolling-shutter profile position (pixels)", fontsize=9)
+    ax.set_ylabel("Normalized signal", fontsize=9)
+    ax.tick_params(axis="both", labelsize=8)
+    ax.legend(loc="lower left", ncols=2, frameon=False, fontsize=8)
+    ax.text(
+        0.01,
+        0.97,
+        f"Representative frame; profile correlation = {best.result.corr:.3f}",
+        transform=ax.transAxes,
+        fontsize=7,
+        va="top",
+    )
+    fig.savefig(path, dpi=300)
+    plt.close(fig)
+
+
 def summarize_video(
     video_path: str,
     video_info: VideoInfo,
@@ -538,8 +570,16 @@ def process_video(
             f"{args.out_prefix}_{video_stem}_diagnostic.png",
         )
         save_diagnostic_plot(plot_path, os.path.basename(video_path), frame_matches, "".join(str(bit) for bit in bits))
+        thesis_plot_path = os.path.join(
+            repo_root,
+            "plots",
+            "3.2",
+            f"{args.out_prefix}_{video_stem}_thesis_overlay.png",
+        )
+        save_thesis_overlay_plot(thesis_plot_path, frame_matches)
         summary = summarize_video(video_path, video_info, bits, frame_matches)
         summary["diagnostic_plot"] = plot_path
+        summary["thesis_overlay_plot"] = thesis_plot_path
         summary["sample_frame_dir"] = frame_dir if args.keep_sample_frames else ""
 
         frame_rows: List[Dict[str, object]] = []

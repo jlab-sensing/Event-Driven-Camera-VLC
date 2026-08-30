@@ -1,0 +1,5 @@
+known_state,symbol_intervals,mean_total_events,median_total_events,sample_std_total_events,interpretation
+1,2220,10147.98,10172.00,2741.06,descriptive LED-ROI event-visibility result; not CSK decoding
+2,2220,10188.24,10213.00,2713.93,descriptive LED-ROI event-visibility result; not CSK decoding
+3,2220,10186.30,10180.50,2721.70,descriptive LED-ROI event-visibility result; not CSK decoding
+4,2220,10197.51,10195.00,2742.25,descriptive LED-ROI event-visibility result; not CSK decoding
